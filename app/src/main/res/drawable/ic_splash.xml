@@ -1,0 +1,37 @@
+<!-- Splash icon: the rounded Quantm tile on the dark background -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path android:pathData="M38,24h32a14,14 0 0,1 14,14v32a14,14 0 0,1 -14,14h-32a14,14 0 0,1 -14,-14v-32a14,14 0 0,1 14,-14z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="24"
+                android:startY="24"
+                android:endX="84"
+                android:endY="84"
+                android:startColor="#7C3AED"
+                android:endColor="#06B6D4" />
+        </aapt:attr>
+    </path>
+    <group
+        android:scaleX="0.1"
+        android:scaleY="0.1"
+        android:translateX="26.4"
+        android:translateY="27.8">
+        <path
+            android:pathData="M276,360 A136,136 0 1,1 364,267"
+            android:strokeWidth="40"
+            android:strokeColor="#FFFFFF"
+            android:strokeLineCap="round" />
+        <path
+            android:pathData="M300,338 L334,338 L356,286 L382,404 L404,330 L420,352 L448,352"
+            android:strokeWidth="26"
+            android:strokeColor="#FFFFFF"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round" />
+    </group>
+</vector>

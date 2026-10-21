@@ -1,0 +1,13 @@
+.gradle/
+.kotlin/
+build/
+local.properties
+*.iml
+.idea/
+captures/
+/signing/
+*.jks
+*.keystore
+keystore.properties
+dev-update-token.txt
+/dist/
