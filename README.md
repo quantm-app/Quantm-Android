@@ -2,6 +2,14 @@
 
 **SoundCloud without the ads**, as a real Android app. The phone version of [Quantm](https://github.com/quantm-app/Quantm): free, open source, no ads, no tracking.
 
+<p>
+  <img src="docs/screenshots/home.png" width="19%" alt="Home">
+  <img src="docs/screenshots/now-playing.png" width="19%" alt="Now Playing">
+  <img src="docs/screenshots/artist.png" width="19%" alt="Artist page">
+  <img src="docs/screenshots/library.png" width="19%" alt="Library">
+  <img src="docs/screenshots/themes.png" width="19%" alt="Themes">
+</p>
+
 ## Download
 
 Get **`Quantm-VERSION.apk`** from the [latest release](https://github.com/quantm-app/Quantm-Android/releases/latest) and open it on your phone. Android asks once to allow installs from your browser or file manager: allow it, then tap **Install**.

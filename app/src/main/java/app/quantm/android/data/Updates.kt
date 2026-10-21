@@ -66,6 +66,8 @@ class Updates(private val context: Context, private val http: OkHttpClient) {
             .header("Accept", "application/vnd.github+json")
             .build()
         val body = http.newCall(request).execute().use {
+            // no releases published yet (or the repo isn't public yet): nothing newer to offer
+            if (it.code == 404) return null
             if (!it.isSuccessful) throw IOException("GitHub answered ${it.code}")
             it.body.string()
         }
