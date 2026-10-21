@@ -54,6 +54,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.quantm.android.data.Item
@@ -88,6 +91,7 @@ import app.quantm.android.ui.components.formatCount
 import app.quantm.android.ui.components.pagedFooter
 import app.quantm.android.ui.components.plural
 import app.quantm.android.ui.rememberPaged
+import app.quantm.android.ui.theme.lerpColor
 import kotlinx.coroutines.launch
 
 @Composable
@@ -106,7 +110,7 @@ fun LibraryScreen() {
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = bottom + 16.dp)) {
         item {
             Row(Modifier.statusBarsPadding().padding(start = 16.dp, end = 4.dp, top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("Library", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f))
+                Text("Library", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f).semantics { heading() })
                 IconButton(onClick = { actions.navigate(SettingsRoute) }) { Icon(Icons.Rounded.Settings, "Settings") }
             }
         }
@@ -117,8 +121,8 @@ fun LibraryScreen() {
                     .padding(16.dp)
                     .fillMaxWidth()
                     .clip(MaterialTheme.shapes.large)
-                    .background(Brush.linearGradient(listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.primary.copy(alpha = 0.45f))))
-                    .clickable { actions.navigate(LikesRoute) }
+                    .background(Brush.linearGradient(MaterialTheme.colorScheme.primary.let { listOf(it, lerpColor(it, Color.Black, 0.3f)) }))
+                    .clickable(onClickLabel = "Open liked songs") { actions.navigate(LikesRoute) }
                     .padding(20.dp)
             ) {
                 Column {
@@ -169,7 +173,7 @@ fun LibraryScreen() {
         item { NavRow(Icons.Rounded.History, "Recently played", null, { actions.navigate(HistoryRoute) }) }
         me?.let { user ->
             item {
-                NavRow(Icons.Rounded.People, "Following", "${formatCount(user.followingsCount)} artists", {
+                NavRow(Icons.Rounded.People, "Following", plural(user.followingsCount, "artist"), {
                     actions.navigate(UsersRoute(user.id, followers = false, title = "Following"))
                 })
             }
@@ -194,7 +198,7 @@ fun LibraryScreen() {
                 )
             }
         }
-        items(local, key = { it.id }) { p ->
+        items(local, key = { it.id }, contentType = { "playlist" }) { p ->
             ListRow(
                 title = p.title,
                 subtitle = "Quantm playlist · ${plural(p.tracks.size.toLong(), "song")}",
@@ -235,7 +239,11 @@ fun LikesScreen() {
     val graph = LocalContext.current.graph
     val me by graph.social.me.collectAsStateWithLifecycle()
     val version by graph.social.likesVersion.collectAsStateWithLifecycle()
-    val meId = me?.id ?: return
+    val meId = me?.id
+    if (meId == null) {
+        ListScreen("Liked songs") { item { SkeletonRows() } }
+        return
+    }
     val likes = rememberPaged("likes") { graph.api.myTrackLikes(meId) }
     val scope = rememberCoroutineScope()
     var loadingAll by remember { mutableStateOf(false) }
@@ -257,7 +265,7 @@ fun LikesScreen() {
         if (likes.done && likes.items.isEmpty()) item {
             MessageState(Icons.Rounded.Favorite, "No liked songs yet", "Tap the heart on any song to save it here.")
         }
-        itemsIndexed(likes.items, key = { _, t -> t.id }) { i, track ->
+        itemsIndexed(likes.items, key = { _, t -> t.id }, contentType = { _, _ -> "track" }) { i, track ->
             TrackRow(track, onClick = { graph.player.play(likes.items, i, context = "Liked songs") })
         }
         pagedFooter(likes)
@@ -273,7 +281,7 @@ fun HistoryScreen() {
         if (history.done && history.items.isEmpty()) item {
             MessageState(Icons.Rounded.History, "Nothing played yet", "Songs you play on SoundCloud show up here.")
         }
-        itemsIndexed(history.items, key = { i, t -> "$i:${t.id}" }) { i, track ->
+        itemsIndexed(history.items, key = { i, t -> "$i:${t.id}" }, contentType = { _, _ -> "track" }) { i, track ->
             TrackRow(track, onClick = { graph.player.play(history.items, i, context = "Recently played") })
         }
         pagedFooter(history)
@@ -310,7 +318,7 @@ fun DownloadsScreen() {
                 "Songs whose artist allows downloads have a Download option in their menu. Downloaded songs play with no internet.",
             )
         }
-        itemsIndexed(tracks, key = { _, t -> t.id }) { i, track ->
+        itemsIndexed(tracks, key = { _, t -> t.id }, contentType = { _, _ -> "track" }) { i, track ->
             TrackRow(track, onClick = { graph.player.play(tracks, i, context = "Downloads") }, onRemove = { graph.offline.remove(track.id) })
         }
     }
@@ -330,11 +338,16 @@ fun LocalPlaylistsScreen() {
     val context = LocalContext.current
     val importer = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
-        runCatching {
-            val text = context.contentResolver.openInputStream(uri)!!.use { it.readBytes().decodeToString() }
-            graph.localPlaylists.importJson(text)
-        }.onSuccess { graph.messages.show("Imported ${plural(it.toLong(), "playlist")}") }
-            .onFailure { graph.messages.show(it.message ?: "Couldn't import that file.") }
+        graph.scope.launch {
+            // the file may be in the cloud: read it off the main thread
+            runCatching {
+                val text = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    context.contentResolver.openInputStream(uri)!!.use { it.readBytes().decodeToString() }
+                }
+                graph.localPlaylists.importJson(text)
+            }.onSuccess { graph.messages.show("Imported ${plural(it.toLong(), "playlist")}") }
+                .onFailure { graph.messages.show("Couldn't import that file. Pick a playlists file exported from Quantm.") }
+        }
     }
     val exporter = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
@@ -345,7 +358,7 @@ fun LocalPlaylistsScreen() {
     }
 
     ListScreen("Quantm playlists", actions = {
-        IconButton(onClick = { importer.launch(arrayOf("application/json", "text/plain", "*/*")) }) { Icon(Icons.Rounded.FileUpload, "Import") }
+        IconButton(onClick = { importer.launch(arrayOf("application/json", "text/plain", "*/*")) }) { Icon(Icons.Rounded.FileUpload, "Import playlists") }
         IconButton(onClick = { creating = true }) { Icon(Icons.Rounded.Add, "New playlist") }
     }) {
         item {
@@ -359,7 +372,7 @@ fun LocalPlaylistsScreen() {
         if (local.isEmpty()) item {
             MessageState(Icons.AutoMirrored.Rounded.PlaylistPlay, "No Quantm playlists yet", null, action = "New playlist", onAction = { creating = true })
         }
-        items(local, key = { it.id }) { p ->
+        items(local, key = { it.id }, contentType = { "playlist" }) { p ->
             ListRow(
                 title = p.title,
                 subtitle = plural(p.tracks.size.toLong(), "song"),
@@ -387,12 +400,12 @@ fun PlaylistsScreen() {
     val graph = LocalContext.current.graph
     val actions = LocalActions.current
     val library = rememberPaged("library") { graph.api.myLibrary() }
-    ListScreen("Playlists & albums", refreshing = library.refreshing, onRefresh = library::refresh) {
+    ListScreen("SoundCloud playlists & albums", refreshing = library.refreshing, onRefresh = library::refresh) {
         if (library.initial) item { SkeletonRows() }
         if (library.done && library.items.isEmpty()) item {
             MessageState(Icons.Rounded.LibraryMusic, "Nothing here yet", "Playlists and albums you make or save on SoundCloud show up here.")
         }
-        items(library.items, key = { it.key }) { item ->
+        items(library.items, key = { it.key }, contentType = { "playlist" }) { item ->
             when (item) {
                 is Item.PlaylistItem -> PlaylistRow(item.playlist, onClick = { actions.open(item) })
                 is Item.SystemItem -> ListRow(
@@ -417,10 +430,13 @@ fun UsersScreen(userId: Long, followers: Boolean, title: String) {
     ListScreen(title, refreshing = users.refreshing, onRefresh = users::refresh) {
         if (users.initial) item { SkeletonRows() }
         users.error?.takeIf { users.items.isEmpty() }?.let { item { ErrorState(it, users::retry) } }
-        items(users.items, key = { it.id }) { user ->
+        items(users.items, key = { it.id }, contentType = { "user" }) { user ->
             UserRow(user, onClick = { actions.openArtist(user) }, trailing = {
                 val on = user.id in following
-                TextButton(onClick = { graph.social.toggleFollow(user) }) {
+                TextButton(
+                    onClick = { graph.social.toggleFollow(user) },
+                    modifier = Modifier.semantics { contentDescription = (if (on) "Unfollow " else "Follow ") + user.username },
+                ) {
                     Text(if (on) "Following" else "Follow", color = if (on) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary)
                 }
             })

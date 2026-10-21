@@ -31,7 +31,7 @@ class Offline(context: Context, private val api: SoundCloud, private val scope: 
     /** Download progress 0..1 by track id */
     private val _progress = MutableStateFlow<Map<Long, Float>>(emptyMap())
     val progress: StateFlow<Map<Long, Float>> = _progress.asStateFlow()
-    private val jobs = HashMap<Long, Job>()
+    private val jobs = java.util.concurrent.ConcurrentHashMap<Long, Job>()
 
     fun fileFor(trackId: Long): File? =
         _entries.value.find { it.track.id == trackId }?.let { File(dir, it.file) }?.takeIf { it.exists() }
@@ -43,7 +43,8 @@ class Offline(context: Context, private val api: SoundCloud, private val scope: 
     fun download(track: Track) {
         if (!track.isDownloadable || has(track.id) || jobs.containsKey(track.id)) return
         _progress.update { it + (track.id to 0f) }
-        jobs[track.id] = scope.launch(Dispatchers.IO) {
+        // registered before it starts, so a fast finish can't remove it before it's added
+        val job = scope.launch(Dispatchers.IO, start = kotlinx.coroutines.CoroutineStart.LAZY) {
             try {
                 val url = api.downloadUrl(track.id)
                 val request = Request.Builder().url(url).build()
@@ -85,6 +86,8 @@ class Offline(context: Context, private val api: SoundCloud, private val scope: 
                 _progress.update { it - track.id }
             }
         }
+        jobs[track.id] = job
+        job.start()
     }
 
     fun cancel(trackId: Long) { jobs.remove(trackId)?.cancel() }
@@ -96,7 +99,7 @@ class Offline(context: Context, private val api: SoundCloud, private val scope: 
     }
 
     fun removeAll() {
-        jobs.values.forEach { it.cancel() }
+        jobs.values.toList().forEach { it.cancel() }
         dir.listFiles()?.forEach { if (it != index) it.delete() }
         _entries.value = emptyList()
         saveIndex()
@@ -121,7 +124,16 @@ class Offline(context: Context, private val api: SoundCloud, private val scope: 
         else QuantmJson.decodeFromString<List<OfflineEntry>>(index.readText()).filter { File(dir, it.file).exists() }
     }.getOrDefault(emptyList())
 
+    private val indexLock = Any()
+
+    /** Downloads finish on several threads at once: one writer at a time, replacing the file in one step */
     private fun saveIndex() {
-        runCatching { index.writeText(QuantmJson.encodeToString(kotlinx.serialization.builtins.ListSerializer(OfflineEntry.serializer()), _entries.value)) }
+        synchronized(indexLock) {
+            runCatching {
+                val tmp = File(dir, "index.json.tmp")
+                tmp.writeText(QuantmJson.encodeToString(kotlinx.serialization.builtins.ListSerializer(OfflineEntry.serializer()), _entries.value))
+                java.nio.file.Files.move(tmp.toPath(), index.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING, java.nio.file.StandardCopyOption.ATOMIC_MOVE)
+            }
+        }
     }
 }

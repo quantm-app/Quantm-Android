@@ -38,6 +38,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -151,17 +152,18 @@ fun ExpandableText(text: String, modifier: Modifier = Modifier, collapsedLines: 
         overflow = TextOverflow.Ellipsis,
         modifier = modifier
             .animateContentSize()
-            .clickable { expanded = !expanded }
+            .clickable(onClickLabel = if (expanded) "Show less" else "Show more", role = Role.Button) { expanded = !expanded }
             .padding(horizontal = 16.dp, vertical = 8.dp),
     )
 }
 
 @Composable
 fun StatRow(stats: List<Pair<String, String>>, modifier: Modifier = Modifier) {
-    Row(modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-        stats.forEachIndexed { i, (value, label) ->
-            if (i > 0) Text("  ·  ", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
-            Text("$value $label", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-    }
+    Text(
+        stats.joinToString(" · ") { (value, label) -> "$value $label".trim() },
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        textAlign = TextAlign.Center,
+        modifier = modifier.padding(top = 8.dp),
+    )
 }

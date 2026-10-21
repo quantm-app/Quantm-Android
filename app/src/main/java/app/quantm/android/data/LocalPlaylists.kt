@@ -95,12 +95,19 @@ class LocalPlaylists(context: Context) {
         save(_playlists.value.map { if (it.id == id) change(it).copy(updatedAt = System.currentTimeMillis()) else it })
     }
 
+    /** Called when a change couldn't be saved (storage full); the change is undone */
+    var onSaveFailed: (() -> Unit)? = null
+
     private fun save(list: List<LocalPlaylist>) {
-        _playlists.value = list
-        val tmp = File(file.parentFile, file.name + ".tmp")
-        tmp.writeText(QuantmJson.encodeToString(JsonObject.serializer(), document(list)))
-        // replace in one step, so a crash mid-save never leaves a half-written file
-        java.nio.file.Files.move(tmp.toPath(), file.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING, java.nio.file.StandardCopyOption.ATOMIC_MOVE)
+        try {
+            val tmp = File(file.parentFile, file.name + ".tmp")
+            tmp.writeText(QuantmJson.encodeToString(JsonObject.serializer(), document(list)))
+            // replace in one step, so a crash mid-save never leaves a half-written file
+            java.nio.file.Files.move(tmp.toPath(), file.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING, java.nio.file.StandardCopyOption.ATOMIC_MOVE)
+            _playlists.value = list
+        } catch (e: java.io.IOException) {
+            onSaveFailed?.invoke()
+        }
     }
 
     private fun load(): List<LocalPlaylist> = runCatching {

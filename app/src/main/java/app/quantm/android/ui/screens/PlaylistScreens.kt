@@ -34,6 +34,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -45,6 +46,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -152,7 +158,7 @@ fun PlaylistScreen(id: Long) {
                 Text(
                     playlist.user?.username.orEmpty(),
                     style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.padding(top = 6.dp).clickable { actions.openArtist(playlist.user) },
+                    modifier = Modifier.minimumInteractiveComponentSize().clickable(role = Role.Button) { actions.openArtist(playlist.user) },
                 )
                 Subtitle(
                     listOfNotNull(
@@ -318,6 +324,13 @@ fun LocalPlaylistScreen(id: String) {
                         .clickable {
                             if (track.isProtected) actions.trackMenu(track) else graph.player.play(rows, i, context = playlist.title)
                         }
+                        .semantics {
+                            customActions = buildList {
+                                add(CustomAccessibilityAction("Remove") { graph.localPlaylists.remove(id, track.id); true })
+                                if (i > 0) add(CustomAccessibilityAction("Move up") { graph.localPlaylists.move(id, i, i - 1); true })
+                                if (i < rows.lastIndex) add(CustomAccessibilityAction("Move down") { graph.localPlaylists.move(id, i, i + 1); true })
+                            }
+                        }
                         .padding(start = 16.dp, top = 8.dp, bottom = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -343,11 +356,13 @@ fun LocalPlaylistScreen(id: String) {
                     }
                     IconButton(
                         onClick = {},
-                        modifier = Modifier.draggableHandle(
-                            onDragStarted = { dragging = true; haptics.performHapticFeedback(HapticFeedbackType.LongPress) },
-                            onDragStopped = { dragging = false },
-                        ),
-                    ) { Icon(Icons.Rounded.DragHandle, "Drag to reorder", tint = MaterialTheme.colorScheme.onSurfaceVariant) }
+                        modifier = Modifier
+                            .clearAndSetSemantics {}
+                            .draggableHandle(
+                                onDragStarted = { dragging = true; haptics.performHapticFeedback(HapticFeedbackType.LongPress) },
+                                onDragStopped = { dragging = false },
+                            ),
+                    ) { Icon(Icons.Rounded.DragHandle, null, tint = MaterialTheme.colorScheme.onSurfaceVariant) }
                 }
             }
         }

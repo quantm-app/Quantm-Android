@@ -1,7 +1,7 @@
 package app.quantm.android.ui.screens
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -21,10 +21,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.TrendingUp
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ContentPaste
 import androidx.compose.material.icons.rounded.History
+import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.SearchOff
 import androidx.compose.material3.FilterChip
@@ -33,6 +33,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
@@ -49,6 +50,9 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -56,6 +60,7 @@ import app.quantm.android.data.Item
 import app.quantm.android.data.friendly
 import app.quantm.android.graph
 import app.quantm.android.ui.LocalActions
+import app.quantm.android.ui.components.Artwork
 import app.quantm.android.ui.components.ListRow
 import app.quantm.android.ui.components.LocalBottomPadding
 import app.quantm.android.ui.components.MessageState
@@ -128,7 +133,7 @@ fun SearchScreen() {
 
     Column(Modifier.fillMaxSize()) {
         Column(Modifier.statusBarsPadding().padding(start = 16.dp, end = 16.dp, top = 12.dp)) {
-            Text("Search", style = MaterialTheme.typography.headlineMedium)
+            Text("Search", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.semantics { heading() })
             Spacer(Modifier.padding(top = 12.dp))
             TextField(
                 value = text,
@@ -155,14 +160,14 @@ fun SearchScreen() {
                 ),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                 keyboardActions = KeyboardActions(onSearch = { submit(text) }),
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Search songs, artists, playlists or a link" },
             )
         }
 
         when {
             resolving -> SkeletonRows(4)
             suggestions.isNotEmpty() -> LazyColumn(contentPadding = PaddingValues(top = 8.dp, bottom = bottom)) {
-                items(suggestions) { s ->
+                items(suggestions, key = { it }) { s ->
                     ListRow(
                         title = s,
                         subtitle = null,
@@ -182,7 +187,12 @@ fun SearchScreen() {
             else -> LazyColumn(contentPadding = PaddingValues(bottom = bottom + 16.dp)) {
                 val recent = history.split('\n').filter { it.isNotBlank() }
                 if (recent.isNotEmpty()) {
-                    item { SectionHeader("Recent searches") }
+                    item {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(end = 8.dp)) {
+                            Box(Modifier.weight(1f)) { SectionHeader("Recent searches") }
+                            TextButton(onClick = { graph.settings.searchHistory.value = "" }) { Text("Clear") }
+                        }
+                    }
                     items(recent, key = { "h$it" }) { q ->
                         ListRow(
                             title = q,
@@ -190,7 +200,7 @@ fun SearchScreen() {
                             onClick = { submit(q) },
                             leading = { Icon(Icons.Rounded.History, null, tint = MaterialTheme.colorScheme.onSurfaceVariant) },
                             trailing = {
-                                IconButton(onClick = { graph.settings.removeSearch(q) }) { Icon(Icons.Rounded.Close, "Remove", tint = MaterialTheme.colorScheme.onSurfaceVariant) }
+                                IconButton(onClick = { graph.settings.removeSearch(q) }) { Icon(Icons.Rounded.Close, "Remove $q from recent searches", tint = MaterialTheme.colorScheme.onSurfaceVariant) }
                             },
                         )
                     }
@@ -202,8 +212,8 @@ fun SearchScreen() {
                     }
                 }
                 item {
-                    Row(Modifier.padding(16.dp).fillMaxWidth().clickable { submit("trending") }, verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.AutoMirrored.Rounded.TrendingUp, null, tint = MaterialTheme.colorScheme.primary)
+                    Row(Modifier.padding(16.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Rounded.Link, null, tint = MaterialTheme.colorScheme.primary)
                         Spacer(Modifier.width(12.dp))
                         Text("Tip: paste a SoundCloud link to open it here.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
@@ -225,14 +235,23 @@ private fun Results(query: String, kind: String) {
         if (results.done && results.items.isEmpty()) item {
             MessageState(Icons.Rounded.SearchOff, "No results for \"$query\"", "Check the spelling or try fewer words.")
         }
-        itemsIndexed(results.items, key = { _, item -> item.key }) { _, item ->
+        itemsIndexed(
+            results.items,
+            key = { _, item -> item.key },
+            contentType = { _, item -> when (item) { is Item.TrackItem -> "track"; is Item.UserItem -> "user"; else -> "playlist" } },
+        ) { _, item ->
             when (item) {
                 is Item.TrackItem -> TrackRow(item.track, onClick = {
                     graph.player.play(tracks, tracks.indexOfFirst { it.id == item.track.id }, context = "Search: $query")
                 })
                 is Item.UserItem -> UserRow(item.user, onClick = { actions.open(item) })
                 is Item.PlaylistItem -> PlaylistRow(item.playlist, onClick = { actions.open(item) })
-                is Item.SystemItem -> ListRow(item.playlist.title, item.playlist.description, onClick = { actions.open(item) }, leading = {})
+                is Item.SystemItem -> ListRow(
+                    item.playlist.title,
+                    item.playlist.description,
+                    onClick = { actions.open(item) },
+                    leading = { Artwork(item.playlist.cover, size = 56.dp, seed = item.playlist.urn.hashCode().toLong()) },
+                )
             }
         }
         pagedFooter(results)

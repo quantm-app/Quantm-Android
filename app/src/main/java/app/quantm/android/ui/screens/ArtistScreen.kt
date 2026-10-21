@@ -5,6 +5,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
@@ -19,9 +21,13 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.QueueMusic
+import androidx.compose.material.icons.rounded.Album
 import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Repeat
 import androidx.compose.material.icons.rounded.Sensors
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.Verified
@@ -36,6 +42,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.PrimaryScrollableTabRow
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -50,6 +57,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -68,12 +76,14 @@ import app.quantm.android.ui.components.SkeletonRows
 import app.quantm.android.ui.components.TrackRow
 import app.quantm.android.ui.components.formatCount
 import app.quantm.android.ui.components.pagedFooter
+import app.quantm.android.ui.components.plural
 import app.quantm.android.ui.rememberLoadable
 import app.quantm.android.ui.rememberPaged
 import coil3.compose.AsyncImage
 
 private val TABS = listOf("Popular", "Tracks", "Albums", "Playlists", "Reposts")
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ArtistScreen(id: Long) {
     val graph = LocalContext.current.graph
@@ -141,21 +151,34 @@ fun ArtistScreen(id: Long) {
                     }
                     val place = listOfNotNull(user.fullName?.takeIf { it.isNotBlank() && it != user.username }, user.city?.takeIf { it.isNotBlank() }).joinToString(" · ")
                     if (place.isNotEmpty()) Text(place, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    FlowRow(
+                        Modifier.padding(top = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterHorizontally),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                        itemVerticalAlignment = Alignment.CenterVertically,
+                    ) {
                         Text(
-                            "${formatCount(user.followersCount)} followers",
+                            plural(user.followersCount, "follower"),
                             style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier.clickable { actions.navigate(UsersRoute(user.id, true, "${user.username}'s followers")) },
+                            modifier = Modifier
+                                .minimumInteractiveComponentSize()
+                                .clickable(onClickLabel = "Show followers", role = Role.Button) { actions.navigate(UsersRoute(user.id, true, "${user.username}'s followers")) },
                         )
                         Text(
                             "${formatCount(user.followingsCount)} following",
                             style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier.clickable { actions.navigate(UsersRoute(user.id, false, "${user.username} follows")) },
+                            modifier = Modifier
+                                .minimumInteractiveComponentSize()
+                                .clickable(onClickLabel = "Show following", role = Role.Button) { actions.navigate(UsersRoute(user.id, false, "${user.username} follows")) },
                         )
-                        Text("${formatCount(user.trackCount)} tracks", style = MaterialTheme.typography.bodyMedium)
+                        Text(plural(user.trackCount, "song"), style = MaterialTheme.typography.bodyMedium)
                     }
-                    Spacer(Modifier.height(16.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Spacer(Modifier.height(12.dp))
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        itemVerticalAlignment = Alignment.CenterVertically,
+                    ) {
                         val isFollowing = user.id in following
                         if (isFollowing) {
                             OutlinedButton(onClick = { graph.social.toggleFollow(user) }) { Text("Following") }
@@ -189,21 +212,24 @@ fun ArtistScreen(id: Long) {
         val play = { list: List<Track>, i: Int -> graph.player.play(list, i, context = user.username) }
         when {
             tab == 0 -> {
-                trackTab(this, popular.items, popular.initial, popular.done, "No popular tracks yet", play)
+                trackTab(this, popular.items, popular.initial, popular.done, "No popular songs yet", play)
                 pagedFooter(popular)
             }
             tracks != null -> {
-                trackTab(this, tracks.items, tracks.initial, tracks.done, "${user.username} hasn't posted tracks yet", play)
+                trackTab(this, tracks.items, tracks.initial, tracks.done, "${user.username} hasn't posted songs yet", play)
                 pagedFooter(tracks)
             }
             playlists != null -> {
                 if (playlists.initial) item { SkeletonRows(4) }
-                if (playlists.done && playlists.items.isEmpty()) item { MessageState(Icons.Rounded.PlayArrow, if (tab == 2) "No albums" else "No playlists") }
-                items(playlists.items, key = { "p" + it.id }) { p -> PlaylistRow(p, onClick = { actions.openPlaylist(p) }) }
+                if (playlists.done && playlists.items.isEmpty()) item {
+                    if (tab == 2) MessageState(Icons.Rounded.Album, "No albums") else MessageState(Icons.AutoMirrored.Rounded.QueueMusic, "No playlists")
+                }
+                items(playlists.items, key = { "p" + it.id }, contentType = { "playlist" }) { p -> PlaylistRow(p, onClick = { actions.openPlaylist(p) }) }
                 pagedFooter(playlists)
             }
             reposts != null -> {
                 if (reposts.initial) item { SkeletonRows(4) }
+                if (reposts.done && reposts.items.isEmpty()) item { MessageState(Icons.Rounded.Repeat, "No reposts yet") }
                 val list = reposts.items.mapNotNull { (it.item as? Item.TrackItem)?.track }
                 items(reposts.items, key = { "rp" + it.key }) { post ->
                     when (val item = post.item) {
@@ -227,6 +253,6 @@ private fun trackTab(
     play: (List<Track>, Int) -> Unit,
 ) = with(scope) {
     if (initial) item { SkeletonRows(5) }
-    if (done && tracks.isEmpty()) item { MessageState(Icons.Rounded.PlayArrow, emptyText) }
-    itemsIndexed(tracks, key = { _, t -> "t" + t.id }) { i, t -> TrackRow(t, onClick = { play(tracks, i) }) }
+    if (done && tracks.isEmpty()) item { MessageState(Icons.Rounded.MusicNote, emptyText) }
+    itemsIndexed(tracks, key = { _, t -> "t" + t.id }, contentType = { _, _ -> "track" }) { i, t -> TrackRow(t, onClick = { play(tracks, i) }) }
 }

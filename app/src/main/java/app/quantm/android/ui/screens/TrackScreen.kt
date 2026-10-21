@@ -1,5 +1,6 @@
 package app.quantm.android.ui.screens
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -38,8 +39,10 @@ import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SuggestionChip
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -48,7 +51,10 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
@@ -112,7 +118,7 @@ fun TrackScreen(id: Long) {
         item(key = "hero") {
             Hero(track.artworkUrl ?: track.user?.avatarUrl, track.id, track.title, size = 260.dp) {
                 Row(
-                    Modifier.padding(top = 10.dp).clickable { actions.openArtist(track.user) },
+                    Modifier.minimumInteractiveComponentSize().clickable(onClickLabel = "Open artist", role = Role.Button) { actions.openArtist(track.user) },
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Avatar(track.user?.avatarUrl, 24.dp, seed = track.user?.id ?: 0)
@@ -155,14 +161,15 @@ fun TrackScreen(id: Long) {
                             tint = if (isLiked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
                     }
                     IconButton(onClick = { graph.social.toggleRepost(track) }) {
-                        Icon(Icons.Rounded.Repeat, "Repost", tint = if (track.id in reposted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
+                        Icon(Icons.Rounded.Repeat, if (track.id in reposted) "Remove repost" else "Repost", tint = if (track.id in reposted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
                     }
                     FilledIconButton(
                         onClick = ::playHere,
                         modifier = Modifier.size(68.dp),
                         colors = IconButtonDefaults.filledIconButtonColors(),
                     ) {
-                        Icon(if (isCurrent && now.playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, "Play", Modifier.size(38.dp))
+                        val pausing = isCurrent && now.playing
+                        Icon(if (pausing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, if (pausing) "Pause" else "Play", Modifier.size(38.dp))
                     }
                     IconButton(onClick = { actions.addToPlaylist(listOf(track)) }) { Icon(Icons.AutoMirrored.Rounded.PlaylistAdd, "Add to playlist") }
                     if (track.isDownloadable) {
@@ -194,20 +201,40 @@ fun TrackScreen(id: Long) {
         val tags = listOfNotNull(track.genre?.takeIf { it.isNotBlank() }) + tagsOf(track.tagList).take(6)
         if (tags.isNotEmpty()) item(key = "tags") {
             FlowRow(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                tags.distinct().forEach { tag -> SuggestionChip(onClick = {}, label = { Text("#$tag") }) }
+                // plain labels: there is nothing for a tag to open
+                tags.distinct().forEach { tag ->
+                    Surface(shape = MaterialTheme.shapes.small, color = Color.Transparent, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
+                        Text("#$tag", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp))
+                    }
+                }
             }
         }
 
-        item(key = "relatedHeader") { SectionHeader("Fans also like") }
+        val noRelated = related.done && related.items.isEmpty()
+        if (!noRelated) item(key = "relatedHeader") { SectionHeader("Fans also like") }
         if (related.initial) item { SkeletonRows(4) }
-        itemsIndexed(related.items.take(10), key = { _, t -> "r" + t.id }) { i, t ->
+        itemsIndexed(related.items.take(10), key = { _, t -> "r" + t.id }, contentType = { _, _ -> "track" }) { i, t ->
             TrackRow(t, onClick = { graph.player.play(related.items, i, context = "Related to " + track.title) })
         }
 
         item(key = "commentsHeader") { SectionHeader("Comments", subtitle = track.commentCount?.let { "${formatCount(it)} total" }) }
         item(key = "compose") { CommentBox(track) { comments.refresh() } }
+        if (comments.initial) item(key = "commentsLoading") { SkeletonRows(3) }
+        if (comments.done && comments.items.isEmpty()) item(key = "noComments") {
+            Text(
+                "No comments yet. Be the first to say something.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            )
+        }
+        comments.error?.takeIf { comments.items.isEmpty() }?.let { item(key = "commentsError") { ErrorState(it, comments::retry) } }
         val shown = if (showAllComments) comments.items else comments.items.take(4)
-        items(shown, key = { "c" + it.id }) { c -> CommentRow(c) { ms -> if (isCurrent) graph.player.seekTo(ms) } }
+        items(shown, key = { "c" + it.id }, contentType = { "comment" }) { c ->
+            CommentRow(c) { ms ->
+                if (isCurrent) graph.player.seekTo(ms) else graph.messages.show("Play the song to jump to this moment.")
+            }
+        }
         if (!showAllComments && comments.items.size > 4) item(key = "moreComments") {
             TextButton(onClick = { showAllComments = true }, modifier = Modifier.padding(horizontal = 8.dp)) { Text("Show all comments") }
         }
@@ -223,7 +250,7 @@ private fun tagsOf(list: String?): List<String> =
 
 @Composable
 private fun CommentRow(comment: Comment, onTimestamp: (Long) -> Unit) {
-    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+    Row(Modifier.fillMaxWidth().semantics(mergeDescendants = true) {}.padding(horizontal = 16.dp, vertical = 8.dp)) {
         Avatar(comment.user?.avatarUrl, 36.dp, seed = comment.user?.id ?: 0)
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
@@ -234,7 +261,7 @@ private fun CommentRow(comment: Comment, onTimestamp: (Long) -> Unit) {
                         " at ${formatTime(ms)}",
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.clickable { onTimestamp(ms) },
+                        modifier = Modifier.clickable(onClickLabel = "Jump to ${formatTime(ms)}", role = Role.Button) { onTimestamp(ms) },
                     )
                 }
                 Spacer(Modifier.weight(1f))

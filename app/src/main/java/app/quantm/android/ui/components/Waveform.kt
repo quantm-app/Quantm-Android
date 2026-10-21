@@ -7,6 +7,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
@@ -16,6 +17,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.progressBarRangeInfo
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.setProgress
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import kotlin.math.max
 
@@ -30,39 +39,57 @@ fun Waveform(
     played: Color,
     unplayed: Color,
     modifier: Modifier = Modifier,
+    durationMs: Long,
+    positionText: String,
     buffered: Float = 0f,
     onScrub: (Float?) -> Unit = {},
     onSeek: (Float) -> Unit,
 ) {
     var dragging by remember { mutableStateOf<Float?>(null) }
     val haptics = LocalHapticFeedback.current
+    // the pointer blocks below never restart, so they must read the latest callbacks, not the first ones
+    val seek by rememberUpdatedState(onSeek)
+    val scrub by rememberUpdatedState(onScrub)
+    val current by rememberUpdatedState(progress)
+    val skip = if (durationMs > 0) 10_000f / durationMs else 0f
+    val total = formatTime(durationMs)
     Canvas(
         modifier
+            .semantics {
+                contentDescription = "Seek bar"
+                stateDescription = "$positionText of $total"
+                progressBarRangeInfo = ProgressBarRangeInfo(progress.coerceIn(0f, 1f), 0f..1f)
+                setProgress { seek(it.coerceIn(0f, 1f)); true }
+                customActions = listOf(
+                    CustomAccessibilityAction("Back 10 seconds") { seek((current - skip).coerceIn(0f, 1f)); true },
+                    CustomAccessibilityAction("Forward 10 seconds") { seek((current + skip).coerceIn(0f, 1f)); true },
+                )
+            }
             .pointerInput(Unit) {
                 detectTapGestures { offset ->
                     haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                    onSeek((offset.x / size.width).coerceIn(0f, 1f))
+                    seek((offset.x / size.width).coerceIn(0f, 1f))
                 }
             }
             .pointerInput(Unit) {
                 detectHorizontalDragGestures(
                     onDragStart = { offset ->
                         dragging = (offset.x / size.width).coerceIn(0f, 1f)
-                        onScrub(dragging)
+                        scrub(dragging)
                     },
                     onDragEnd = {
-                        dragging?.let(onSeek)
+                        dragging?.let(seek)
                         dragging = null
-                        onScrub(null)
+                        scrub(null)
                     },
                     onDragCancel = {
                         dragging = null
-                        onScrub(null)
+                        scrub(null)
                     },
                     onHorizontalDrag = { change, _ ->
                         change.consume()
                         dragging = (change.position.x / size.width).coerceIn(0f, 1f)
-                        onScrub(dragging)
+                        scrub(dragging)
                     },
                 )
             }

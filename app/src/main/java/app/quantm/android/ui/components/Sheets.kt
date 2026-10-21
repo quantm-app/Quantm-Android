@@ -57,6 +57,10 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -75,7 +79,7 @@ fun SheetAction(icon: ImageVector, label: String, onClick: () -> Unit, enabled: 
     Row(
         Modifier
             .fillMaxWidth()
-            .clickable(enabled = enabled, onClick = onClick)
+            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
             .padding(horizontal = 24.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -197,10 +201,10 @@ fun AddToPlaylistSheet(tracks: List<Track>, onDismiss: () -> Unit) {
                 Text(
                     if (tracks.size == 1) "Add to playlist" else "Add ${tracks.size} songs to a playlist",
                     style = MaterialTheme.typography.titleLarge,
-                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp).semantics { heading() },
                 )
             }
-            item { SectionLabel("Quantm playlists · saved on this phone, instant") }
+            item { SectionLabel("Quantm playlists (saved on this phone)") }
             item {
                 SheetAction(Icons.Rounded.Add, "New Quantm playlist", { creating = "local" }, tint = MaterialTheme.colorScheme.primary)
             }
@@ -209,6 +213,13 @@ fun AddToPlaylistSheet(tracks: List<Track>, onDismiss: () -> Unit) {
                 ListRow(
                     title = playlist.title,
                     subtitle = plural(playlist.tracks.size.toLong(), "song"),
+                    modifier = Modifier.semantics {
+                        stateDescription = when {
+                            !all -> "Not added"
+                            tracks.size == 1 -> "Added, tap to remove"
+                            else -> "Added"
+                        }
+                    },
                     onClick = {
                         if (tracks.size == 1 && all) {
                             graph.localPlaylists.remove(playlist.id, tracks[0].id)
@@ -231,7 +242,7 @@ fun AddToPlaylistSheet(tracks: List<Track>, onDismiss: () -> Unit) {
             }
             if (me != null) {
                 item { SectionLabel("SoundCloud playlists") }
-                item { SheetAction(Icons.Rounded.Add, "New SoundCloud playlist", { creating = "remote" }) }
+                item { SheetAction(Icons.Rounded.Add, "New private SoundCloud playlist", { creating = "remote" }) }
                 when {
                     remoteError != null -> item {
                         Text(remoteError!!, Modifier.padding(horizontal = 24.dp, vertical = 8.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -254,7 +265,7 @@ fun AddToPlaylistSheet(tracks: List<Track>, onDismiss: () -> Unit) {
                                     }.onSuccess { added ->
                                         graph.messages.show(if (added) "Added to ${playlist.title}" else "Already in ${playlist.title}")
                                     }.onFailure {
-                                        graph.messages.show("Couldn't update the playlist: " + it.friendly() + " Quantm playlists always work.")
+                                        graph.messages.show("Couldn't update the playlist: " + it.friendly() + " Try again, or add it to a Quantm playlist instead.")
                                     }
                                 }
                             },
@@ -268,7 +279,7 @@ fun AddToPlaylistSheet(tracks: List<Track>, onDismiss: () -> Unit) {
 
     creating?.let { kind ->
         TextInputDialog(
-            title = if (kind == "local") "New Quantm playlist" else "New SoundCloud playlist",
+            title = if (kind == "local") "New Quantm playlist" else "New private SoundCloud playlist",
             label = "Playlist name",
             confirm = "Create",
             onDismiss = { creating = null },
@@ -297,7 +308,7 @@ private fun SectionLabel(text: String) {
         style = MaterialTheme.typography.labelLarge,
         color = MaterialTheme.colorScheme.primary,
         fontWeight = FontWeight.SemiBold,
-        modifier = Modifier.padding(start = 24.dp, end = 24.dp, top = 16.dp, bottom = 4.dp),
+        modifier = Modifier.padding(start = 24.dp, end = 24.dp, top = 16.dp, bottom = 4.dp).semantics { heading() },
     )
 }
 

@@ -5,6 +5,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,6 +20,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -63,6 +68,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -70,6 +81,7 @@ import app.quantm.android.data.UpdateState
 import app.quantm.android.graph
 import app.quantm.android.playback.AudioFx
 import app.quantm.android.playback.EQ_PRESETS
+import app.quantm.android.ui.DownloadsRoute
 import app.quantm.android.ui.EqualizerRoute
 import app.quantm.android.ui.LocalActions
 import app.quantm.android.ui.ThemesRoute
@@ -82,6 +94,7 @@ import app.quantm.android.ui.components.formatBytes
 import app.quantm.android.ui.theme.ALBUM_MATCH
 import app.quantm.android.ui.theme.PRESETS
 import app.quantm.android.ui.theme.QuantmColors
+import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 
 @Composable
@@ -90,25 +103,27 @@ private fun SettingsGroup(title: String) {
         title,
         style = MaterialTheme.typography.labelLarge,
         color = MaterialTheme.colorScheme.primary,
-        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 24.dp, bottom = 4.dp),
+        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 24.dp, bottom = 4.dp).semantics { heading() },
     )
 }
 
 @Composable
-private fun SettingRow(icon: ImageVector?, title: String, subtitle: String? = null, onClick: (() -> Unit)? = null, trailing: (@Composable () -> Unit)? = null) {
+private fun SettingRow(icon: ImageVector?, title: String, subtitle: String? = null, onClick: (() -> Unit)? = null, modifier: Modifier = Modifier, trailing: (@Composable () -> Unit)? = null) {
     ListItem(
         headlineContent = { Text(title) },
         supportingContent = subtitle?.let { { Text(it) } },
         leadingContent = icon?.let { { Icon(it, null, tint = MaterialTheme.colorScheme.onSurfaceVariant) } },
         trailingContent = trailing,
         colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-        modifier = if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier,
+        modifier = if (onClick != null) modifier.clickable(role = Role.Button, onClick = onClick) else modifier,
     )
 }
 
 @Composable
 private fun SwitchRow(icon: ImageVector?, title: String, subtitle: String?, checked: Boolean, onChange: (Boolean) -> Unit) {
-    SettingRow(icon, title, subtitle, onClick = { onChange(!checked) }) { Switch(checked, onCheckedChange = onChange) }
+    SettingRow(icon, title, subtitle, modifier = Modifier.toggleable(checked, role = Role.Switch, onValueChange = onChange)) {
+        Switch(checked, onCheckedChange = null)
+    }
 }
 
 @Composable
@@ -153,6 +168,7 @@ fun SettingsScreen() {
                 Icons.Rounded.Download,
                 "Downloaded songs",
                 if (downloads.isEmpty()) "None yet. Only songs whose artist allows downloads." else "${downloads.size} songs · ${formatBytes(graph.offline.totalBytes)}",
+                onClick = { actions.navigate(DownloadsRoute) },
             )
         }
         item { SettingsGroup("Updates") }
@@ -225,7 +241,7 @@ fun ThemesScreen() {
     ) { padding ->
         LazyVerticalGrid(
             GridCells.Adaptive(150.dp),
-            Modifier.padding(padding).fillMaxSize(),
+            Modifier.padding(padding).fillMaxSize().selectableGroup(),
             contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = bottom + 16.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -258,7 +274,7 @@ private fun ThemeSwatch(name: String, q: QuantmColors, selected: Boolean, onClic
                 BorderStroke(if (selected) 3.dp else 1.dp, if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant),
                 MaterialTheme.shapes.medium,
             )
-            .clickable(onClick = onClick)
+            .selectable(selected, role = Role.RadioButton, onClick = onClick)
     ) {
         // a tiny preview of the app in this theme
         Box(Modifier.fillMaxWidth().aspectRatio(1.3f).background(q.bg).padding(10.dp)) {
@@ -288,7 +304,7 @@ private fun ThemeSwatch(name: String, q: QuantmColors, selected: Boolean, onClic
                 ) { Icon(Icons.Rounded.Check, null, tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(16.dp)) }
             }
         }
-        Text(name, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(10.dp))
+        Text(name, style = MaterialTheme.typography.labelLarge, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(10.dp))
     }
 }
 
@@ -303,6 +319,8 @@ fun EqualizerScreen() {
     val bass by graph.settings.bassBoost.flow.collectAsStateWithLifecycle()
     val info by graph.audioFx.info.collectAsStateWithLifecycle()
     val levels = AudioFx.levelsFor(stored, info)
+    val scroll = rememberScrollState()
+    val scrolls = info.bands.size > 6
 
     ListScreen("Equalizer", large = false) {
         item {
@@ -329,27 +347,43 @@ fun EqualizerScreen() {
         }
         item {
             Row(
-                Modifier.fillMaxWidth().height(280.dp).padding(horizontal = 12.dp, vertical = 8.dp),
+                Modifier
+                    .fillMaxWidth()
+                    .then(if (scrolls) Modifier.horizontalScroll(scroll) else Modifier)
+                    .height(280.dp)
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
                 horizontalArrangement = Arrangement.SpaceEvenly,
             ) {
                 info.bands.forEachIndexed { band, freq ->
-                    Column(Modifier.weight(1f).fillMaxHeight(), horizontalAlignment = Alignment.CenterHorizontally) {
+                    val db = (levels[band] / 100f).roundToInt()
+                    val khz = freq / 1000f
+                    val kilo = if (khz % 1f == 0f) khz.toInt().toString() else "%.1f".format(khz)
+                    val width = if (scrolls) Modifier.width(56.dp) else Modifier.weight(1f)
+                    Column(width.fillMaxHeight(), horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(
-                            "%+.0f".format(levels[band] / 100f),
+                            "%+d dB".format(db),
                             style = MaterialTheme.typography.labelMedium,
                             color = if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.clearAndSetSemantics {},
                         )
                         VerticalSlider(
                             value = levels[band].toFloat(),
                             range = info.min.toFloat()..info.max.toFloat(),
                             enabled = enabled,
+                            description = if (freq >= 1000) "$kilo kilohertz band" else "$freq hertz band",
+                            state = "%+d decibels".format(db),
                             modifier = Modifier.weight(1f),
                         ) { v ->
                             val next = levels.toMutableList().also { it[band] = v.toInt() }
                             graph.settings.eqPreset.value = "Custom"
                             graph.settings.eqLevels.value = next.joinToString(",")
                         }
-                        Text(if (freq >= 1000) "${freq / 1000}k" else "$freq", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            if (freq >= 1000) "$kilo kHz" else "$freq Hz",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.clearAndSetSemantics {},
+                        )
                     }
                 }
             }
@@ -363,6 +397,10 @@ fun EqualizerScreen() {
                     onValueChange = { graph.settings.bassBoost.value = it.toInt() },
                     valueRange = 0f..1000f,
                     enabled = enabled,
+                    modifier = Modifier.semantics {
+                        contentDescription = "Bass boost"
+                        stateDescription = "${bass / 10} percent"
+                    },
                 )
             }
         }
@@ -388,7 +426,15 @@ fun EqualizerScreen() {
 
 /** A Material slider turned upright, for the EQ bands */
 @Composable
-private fun VerticalSlider(value: Float, range: ClosedFloatingPointRange<Float>, enabled: Boolean, modifier: Modifier = Modifier, onChange: (Float) -> Unit) {
+private fun VerticalSlider(
+    value: Float,
+    range: ClosedFloatingPointRange<Float>,
+    enabled: Boolean,
+    description: String,
+    state: String,
+    modifier: Modifier = Modifier,
+    onChange: (Float) -> Unit,
+) {
     androidx.compose.foundation.layout.BoxWithConstraints(modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         val length = maxHeight
         Slider(
@@ -399,7 +445,11 @@ private fun VerticalSlider(value: Float, range: ClosedFloatingPointRange<Float>,
             // laid out sideways at the column's height, then turned upright around its center
             modifier = Modifier
                 .requiredWidth(length)
-                .graphicsLayer { rotationZ = -90f },
+                .graphicsLayer { rotationZ = -90f }
+                .semantics {
+                    contentDescription = description
+                    stateDescription = state
+                },
         )
     }
 }

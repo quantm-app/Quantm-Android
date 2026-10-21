@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.windowInsetsTopHeight
 import androidx.compose.foundation.layout.padding
@@ -63,6 +64,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import androidx.core.view.WindowCompat
@@ -141,7 +143,16 @@ fun QuantmRoot() {
             activity.enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
         }
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background, contentColor = MaterialTheme.colorScheme.onBackground) {
-            if (auth == null) SignInScreen() else MainUi()
+            if (auth == null) {
+                // the main screens have their own snackbars; sign-in errors need one too
+                val snackbar = remember { SnackbarHostState() }
+                val graphMessages = LocalContext.current.graph.messages
+                LaunchedEffect(Unit) { graphMessages.messages.collect { snackbar.showSnackbar(it) } }
+                Box(Modifier.fillMaxSize()) {
+                    SignInScreen()
+                    SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 8.dp))
+                }
+            } else MainUi()
         }
     }
 }
@@ -230,6 +241,8 @@ private fun MainUi() {
     val p = playerProgress.value
     val open = p > 0.5f
     LaunchedEffect(open) { Incoming.playerOpen.value = open }
+    // screen readers shouldn't wander into the screens hidden behind Now Playing
+    val hide = if (open) Modifier.clearAndSetSemantics {} else Modifier
 
     CompositionLocalProvider(
         LocalActions provides actions,
@@ -241,7 +254,7 @@ private fun MainUi() {
             NavHost(
                 navController = nav,
                 startDestination = HomeRoute,
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier.fillMaxSize().then(hide),
                 enterTransition = { enter() },
                 exitTransition = { exit() },
                 popEnterTransition = { popEnter() },
@@ -281,7 +294,8 @@ private fun MainUi() {
             NavigationBar(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .graphicsLayer { translationY = size.height * p },
+                    .graphicsLayer { translationY = size.height * p }
+                    .then(hide),
                 containerColor = MaterialTheme.colorScheme.surfaceContainer,
             ) {
                 TABS.forEach { tab ->
@@ -300,7 +314,7 @@ private fun MainUi() {
                                 }
                             }
                         },
-                        icon = { Icon(if (isSelected) tab.selectedIcon else tab.icon, tab.label) },
+                        icon = { Icon(if (isSelected) tab.selectedIcon else tab.icon, null) },
                         label = { Text(tab.label) },
                         colors = NavigationBarItemDefaults.colors(indicatorColor = MaterialTheme.colorScheme.secondaryContainer),
                     )

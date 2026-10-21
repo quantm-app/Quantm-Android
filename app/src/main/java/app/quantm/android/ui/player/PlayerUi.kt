@@ -22,6 +22,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
@@ -29,6 +31,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -59,7 +62,9 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -80,9 +85,18 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.paneTitle
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -161,7 +175,7 @@ fun PlayerSheet(progress: Animatable<Float, AnimationVector1D>, bottomInset: Dp,
                 .fillMaxWidth()
                 .height(with(density) { full.toDp() })
         ) {
-            if (p > 0.01f) {
+            if (p > 0.1f) {
                 Box(
                     Modifier
                         .fillMaxSize()
@@ -201,6 +215,9 @@ fun MiniPlayer(state: PlayerState, track: Track, onOpen: () -> Unit, modifier: M
     val duration = state.durationMs.coerceAtLeast(1)
     var swipe by remember { mutableFloatStateOf(0f) }
     val offset by animateFloatAsState(swipe, label = "swipe")
+    // big system font sizes would overflow the fixed-height bar
+    val d = LocalDensity.current
+    CompositionLocalProvider(LocalDensity provides Density(d.density, minOf(d.fontScale, 1.3f))) {
     Surface(
         modifier = modifier
             .padding(horizontal = 8.dp)
@@ -215,7 +232,8 @@ fun MiniPlayer(state: PlayerState, track: Track, onOpen: () -> Unit, modifier: M
             Row(
                 Modifier
                     .fillMaxSize()
-                    .clickable(onClick = onOpen)
+                    .clickable(onClickLabel = "Open player", onClick = onOpen)
+                    .semantics { customActions = listOf(CustomAccessibilityAction("Previous song") { graph.player.previous(); true }) }
                     .pointerInput(Unit) {
                         // swipe sideways for the next or previous song
                         detectHorizontalDragGestures(
@@ -252,7 +270,7 @@ fun MiniPlayer(state: PlayerState, track: Track, onOpen: () -> Unit, modifier: M
                 }
                 PlayPauseIcon(state, onClick = { graph.player.toggle() })
                 IconButton(onClick = { graph.player.next() }, enabled = state.index < state.queue.lastIndex || state.repeatMode == Player.REPEAT_MODE_ALL) {
-                    Icon(Icons.Rounded.SkipNext, "Next", Modifier.size(28.dp))
+                    Icon(Icons.Rounded.SkipNext, "Next song", Modifier.size(28.dp))
                 }
             }
             // progress line along the bottom edge
@@ -274,6 +292,7 @@ fun MiniPlayer(state: PlayerState, track: Track, onOpen: () -> Unit, modifier: M
             }
         }
     }
+    }
 }
 
 @Composable
@@ -289,7 +308,7 @@ private fun PlayPauseIcon(state: PlayerState, onClick: () -> Unit) {
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalLayoutApi::class)
 @Composable
 fun NowPlaying(state: PlayerState, track: Track, onCollapse: () -> Unit) {
     val graph = LocalContext.current.graph
@@ -297,7 +316,7 @@ fun NowPlaying(state: PlayerState, track: Track, onCollapse: () -> Unit) {
     val haptics = LocalHapticFeedback.current
     val q = Quantm.colors
     val art = rememberArtworkColors(track.artworkUrl ?: track.user?.avatarUrl)
-    val tint = art?.bg ?: q.surface
+    val tint = art?.bg ?: lerpColor(q.accent, Color.Black, 0.75f)
     val liked by graph.social.likedTracks.collectAsStateWithLifecycle()
     val sleep by graph.sleepTimer.state.collectAsStateWithLifecycle()
     val position = rememberPosition()
@@ -305,28 +324,31 @@ fun NowPlaying(state: PlayerState, track: Track, onCollapse: () -> Unit) {
     var showQueue by remember { mutableStateOf(false) }
     var showSleep by remember { mutableStateOf(false) }
     var showSpeed by remember { mutableStateOf(false) }
-    val samples by produceState<FloatArray?>(null, track.id) { value = graph.api.waveform(graph.api.cached(track.id) ?: track) }
+    val samples by produceState<FloatArray?>(null, track.id) {
+        value = null // don't show the previous song's waveform while this one loads
+        value = graph.api.waveform(graph.api.cached(track.id) ?: track)
+    }
     val duration = state.durationMs.coerceAtLeast(1)
     val shown = scrub?.let { (it * duration).toLong() } ?: position
 
-    // Now Playing is always dark-on-artwork for light themes too, so text stays readable
+    // Now Playing is always dark, light themes included, so text stays readable
     // a rich wash of the artwork's main color at the top, fading to near black
-    val bgTop = if (art != null) lerpColor(lerpColor(art.accent, art.surface, 0.35f), Color.Black, 0.5f) else lerpColor(tint, Color.Black, 0.15f)
-    val dark = !q.isLight || art != null
-    val content = if (dark) Color(0xFFF5F5F5) else q.text
+    val bgTop = if (art != null) lerpColor(lerpColor(art.accent, art.surface, 0.35f), Color.Black, 0.5f) else lerpColor(q.accent, Color.Black, 0.6f)
+    val content = Color(0xFFF5F5F5)
     val muted = content.copy(alpha = 0.65f)
     val accent = art?.accent ?: q.accent
 
     Box(
         Modifier
             .fillMaxSize()
-            .background(Brush.verticalGradient(listOf(if (dark) bgTop else q.surface, if (dark) lerpColor(tint, Color.Black, 0.7f) else q.bg)))
+            .semantics { paneTitle = "Now playing" }
+            .background(Brush.verticalGradient(listOf(bgTop, lerpColor(tint, Color.Black, 0.7f))))
     ) {
         BoxWithConstraints(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
             val landscape = maxWidth > maxHeight
             val header: @Composable () -> Unit = {
                 Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = onCollapse) { Icon(Icons.Rounded.KeyboardArrowDown, "Close", tint = content, modifier = Modifier.size(30.dp)) }
+                    IconButton(onClick = onCollapse) { Icon(Icons.Rounded.KeyboardArrowDown, "Minimize player", tint = content, modifier = Modifier.size(30.dp)) }
                     Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("PLAYING FROM", style = MaterialTheme.typography.labelSmall, color = muted, letterSpacing = MaterialTheme.typography.labelSmall.letterSpacing * 1.5f)
                         Text(state.context ?: "Your queue", style = MaterialTheme.typography.labelLarge, color = content, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -384,10 +406,12 @@ fun NowPlaying(state: PlayerState, track: Track, onCollapse: () -> Unit) {
                                 color = muted,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.clickable {
-                                    onCollapse()
-                                    actions.openArtist(track.user)
-                                },
+                                modifier = Modifier
+                                    .minimumInteractiveComponentSize()
+                                    .clickable(role = Role.Button) {
+                                        onCollapse()
+                                        actions.openArtist(track.user)
+                                    },
                             )
                         }
                         val isLiked = track.id in liked
@@ -413,17 +437,23 @@ fun NowPlaying(state: PlayerState, track: Track, onCollapse: () -> Unit) {
                         unplayed = content.copy(alpha = 0.28f),
                         buffered = (graph.player.bufferedPosition().toFloat() / duration).coerceIn(0f, 1f),
                         modifier = Modifier.fillMaxWidth().height(64.dp),
+                        durationMs = duration,
+                        positionText = formatTime(shown),
                         onScrub = { scrub = it },
                         onSeek = { graph.player.seekTo((it * duration).toLong()) },
                     )
-                    Row(Modifier.fillMaxWidth().padding(top = 4.dp)) {
+                    // the seek bar already announces the time
+                    Row(Modifier.fillMaxWidth().padding(top = 4.dp).clearAndSetSemantics {}) {
                         Text(formatTime(shown), style = MaterialTheme.typography.labelMedium, color = if (scrub != null) accent else muted)
                         Spacer(Modifier.weight(1f))
                         Text("-" + formatTime(duration - shown), style = MaterialTheme.typography.labelMedium, color = muted)
                     }
                     Spacer(Modifier.height(12.dp))
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(onClick = { graph.player.toggleShuffle() }) {
+                        IconButton(
+                            onClick = { graph.player.toggleShuffle() },
+                            modifier = Modifier.semantics { stateDescription = if (state.shuffle) "On" else "Off" },
+                        ) {
                             Icon(Icons.Rounded.Shuffle, "Shuffle", tint = if (state.shuffle) accent else muted)
                         }
                         IconButton(onClick = { graph.player.previous() }, modifier = Modifier.size(56.dp)) {
@@ -469,13 +499,20 @@ fun NowPlaying(state: PlayerState, track: Track, onCollapse: () -> Unit) {
                         }
                     }
                     Spacer(Modifier.height(10.dp))
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    FlowRow(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceEvenly,
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        itemVerticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        val speedLabel = if (state.speed == 1f) "1×" else "${trimSpeed(state.speed)}×"
                         PillButton(
                             icon = Icons.Rounded.Speed,
-                            label = if (state.speed == 1f) "1×" else "${trimSpeed(state.speed)}×",
+                            label = speedLabel,
                             active = state.speed != 1f,
                             content = content,
                             accent = accent,
+                            modifier = Modifier.semantics { contentDescription = "Playback speed $speedLabel" },
                         ) { showSpeed = true }
                         PillButton(
                             icon = Icons.Rounded.Bedtime,
@@ -484,7 +521,7 @@ fun NowPlaying(state: PlayerState, track: Track, onCollapse: () -> Unit) {
                             content = content,
                             accent = accent,
                         ) { showSleep = true }
-                        PillButton(icon = Icons.Rounded.Tune, label = "EQ", active = false, content = content, accent = accent) {
+                        PillButton(icon = Icons.Rounded.Tune, label = "Equalizer", active = false, content = content, accent = accent) {
                             onCollapse()
                             actions.navigate(EqualizerRoute)
                         }
@@ -526,13 +563,22 @@ fun NowPlaying(state: PlayerState, track: Track, onCollapse: () -> Unit) {
 }
 
 @Composable
-private fun PillButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, active: Boolean, content: Color, accent: Color, onClick: () -> Unit) {
+private fun PillButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    active: Boolean,
+    content: Color,
+    accent: Color,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
     Surface(
         onClick = onClick,
+        modifier = modifier,
         shape = CircleShape,
         color = if (active) accent.copy(alpha = 0.22f) else content.copy(alpha = 0.08f),
     ) {
-        Row(Modifier.padding(horizontal = 14.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.heightIn(min = 48.dp).padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(icon, null, tint = if (active) accent else content.copy(alpha = 0.85f), modifier = Modifier.size(18.dp))
             Spacer(Modifier.width(6.dp))
             Text(label, style = MaterialTheme.typography.labelLarge, color = if (active) accent else content.copy(alpha = 0.85f), textAlign = TextAlign.Center)

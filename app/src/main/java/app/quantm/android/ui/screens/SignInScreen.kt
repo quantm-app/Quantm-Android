@@ -9,16 +9,19 @@ import android.webkit.WebViewClient
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
@@ -49,6 +52,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -70,15 +74,18 @@ fun SignInScreen() {
         SoundCloudLogin(onClose = { web = false })
         return
     }
-    Box(
+    // the gradient always ends dark: the white text on it can't depend on the theme
+    BoxWithConstraints(
         Modifier
             .fillMaxSize()
-            .background(Brush.verticalGradient(listOf(Color(0xFF2A1458), Color(0xFF0B2E3A), MaterialTheme.colorScheme.background)))
+            .background(Brush.verticalGradient(listOf(Color(0xFF2A1458), Color(0xFF0B2E3A), Color(0xFF08141A))))
     ) {
         Column(
             Modifier
-                .fillMaxSize()
+                .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
+                // at least a screen tall, so the weighted spacer pins the buttons to the bottom
+                .heightIn(min = maxHeight)
                 .statusBarsPadding()
                 .navigationBarsPadding()
                 .padding(horizontal = 28.dp),
@@ -255,16 +262,31 @@ fun ManualTokenDialog(onDismiss: () -> Unit) {
         onDismissRequest = onDismiss,
         title = { Text("Enter a token") },
         text = {
-            Column {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
                 Text(
-                    "On soundcloud.com in a computer browser, open the developer tools and copy the oauth_token cookie. The client_id is optional: Quantm finds one itself.",
+                    "Paste your SoundCloud login token (the oauth_token cookie from soundcloud.com in a computer browser). The client_id is optional: Quantm finds one itself.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Spacer(Modifier.height(12.dp))
-                OutlinedTextField(token, { token = it.trim() }, label = { Text("oauth_token") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(
+                    token,
+                    { token = it.trim() },
+                    label = { Text("oauth_token") },
+                    singleLine = true,
+                    isError = error != null,
+                    keyboardOptions = KeyboardOptions(autoCorrectEnabled = false, keyboardType = KeyboardType.Password),
+                    modifier = Modifier.fillMaxWidth(),
+                )
                 Spacer(Modifier.height(8.dp))
-                OutlinedTextField(clientId, { clientId = it.trim() }, label = { Text("client_id (optional)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(
+                    clientId,
+                    { clientId = it.trim() },
+                    label = { Text("client_id (optional)") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(autoCorrectEnabled = false),
+                    modifier = Modifier.fillMaxWidth(),
+                )
                 error?.let {
                     Spacer(Modifier.height(8.dp))
                     Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
@@ -281,14 +303,16 @@ fun ManualTokenDialog(onDismiss: () -> Unit) {
                     }
                     busy = true
                     scope.launch {
+                        // check first: saving signs the app in, which closes this dialog
                         runCatching { clientId.ifEmpty { graph.api.scrapeClientId() } }
                             .onSuccess { id ->
-                                graph.auth.save(token, id)
-                                runCatching { graph.api.me() }
-                                    .onSuccess { graph.social.load(); onDismiss() }
-                                    .onFailure {
-                                        graph.auth.clear()
-                                        error = "SoundCloud didn't accept that token."
+                                runCatching { graph.api.checkLogin(token, id) }
+                                    .onSuccess {
+                                        graph.auth.save(token, id)
+                                        graph.social.load()
+                                    }
+                                    .onFailure { e ->
+                                        error = if (e is app.quantm.android.data.ApiException && e.status == 401) "SoundCloud didn't accept that token." else e.friendly()
                                     }
                             }
                             .onFailure { error = it.friendly() }

@@ -112,6 +112,19 @@ fun lerpColor(a: Color, b: Color, t: Float) = Color(
     alpha = 1f,
 )
 
+private fun contrast(a: Color, b: Color): Float {
+    val hi = maxOf(a.luminance(), b.luminance())
+    val lo = minOf(a.luminance(), b.luminance())
+    return (hi + 0.05f) / (lo + 0.05f)
+}
+
+/** Darkens [fg] until it reads on [bg]: preset accents are often too pale for text on a light background */
+fun ensureContrast(fg: Color, bg: Color, min: Float = 4.5f): Color {
+    var out = fg
+    repeat(12) { if (contrast(out, bg) < min) out = lerpColor(out, Color.Black, 0.1f) }
+    return out
+}
+
 val LocalQuantmColors = staticCompositionLocalOf { DefaultColors }
 
 object Quantm {
@@ -121,22 +134,28 @@ object Quantm {
 private fun schemeFor(q: QuantmColors): ColorScheme {
     val tint = { amount: Float -> q.text.copy(alpha = amount).compositeOver(q.bg) }
     val container = q.accent.copy(alpha = 0.18f).compositeOver(q.surface)
-    return if (q.isLight) lightColorScheme(
-        primary = q.accent, onPrimary = q.accentText,
+    return if (q.isLight) {
+        // 3:1 is enough for accent-colored buttons and titles, and keeps brand colors like SoundCloud orange intact
+        val accent = ensureContrast(q.accent, q.bg, min = 3f)
+        // a darkened accent needs light text on it, whatever the preset's accentText is
+        val onAccent = if (accent == q.accent) q.accentText else Color.White
+        lightColorScheme(
+        primary = accent, onPrimary = onAccent,
         primaryContainer = container, onPrimaryContainer = q.text,
-        secondary = q.accent, onSecondary = q.accentText,
+        secondary = accent, onSecondary = onAccent,
         secondaryContainer = container, onSecondaryContainer = q.text,
         tertiary = q.wavePlayed,
         background = q.bg, onBackground = q.text,
         surface = q.bg, onSurface = q.text,
-        surfaceVariant = q.surface, onSurfaceVariant = q.muted,
+        surfaceVariant = q.surface, onSurfaceVariant = ensureContrast(q.muted, q.bg),
         surfaceContainerLowest = q.bg, surfaceContainerLow = q.surface,
         surfaceContainer = q.surface, surfaceContainerHigh = tint(0.06f).compositeOver(q.surface),
         surfaceContainerHighest = tint(0.10f),
         inverseSurface = q.text, inverseOnSurface = q.bg,
         outline = q.muted.copy(alpha = 0.6f).compositeOver(q.bg), outlineVariant = tint(0.12f),
         surfaceTint = Color.Transparent,
-    ) else darkColorScheme(
+        )
+    } else darkColorScheme(
         primary = q.accent, onPrimary = q.accentText,
         primaryContainer = container, onPrimaryContainer = q.text,
         secondary = q.accent, onSecondary = q.accentText,

@@ -53,7 +53,9 @@ class Graph(context: Context) {
     val auth = AuthStore(context)
     val api = SoundCloud(http, auth)
     val social = Social(context, api, scope, messages)
-    val localPlaylists = LocalPlaylists(context)
+    val localPlaylists = LocalPlaylists(context).apply {
+        onSaveFailed = { messages.show("Couldn't save that change: your phone's storage is full.") }
+    }
     val offline = Offline(context, api, scope, messages)
     val updates = Updates(context, http)
     val sleepTimer = SleepTimer()

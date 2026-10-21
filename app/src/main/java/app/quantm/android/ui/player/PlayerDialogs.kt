@@ -19,6 +19,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.DragHandle
@@ -48,6 +50,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -83,7 +92,8 @@ fun QueueSheet(onDismiss: () -> Unit) {
     val current = state.current
     var rows by remember { mutableStateOf(rowsOf(state.queue, state.index + 1)) }
     var dragging by remember { mutableStateOf(false) }
-    LaunchedEffect(state.queue, state.index) { if (!dragging) rows = rowsOf(state.queue, state.index + 1) }
+    // while dragging, keep the local order; catch up with the player as soon as the drag ends
+    LaunchedEffect(state.queue, state.index, dragging) { if (!dragging) rows = rowsOf(state.queue, state.index + 1) }
 
     val listState = rememberLazyListState()
     // rows start after the two header items
@@ -102,7 +112,7 @@ fun QueueSheet(onDismiss: () -> Unit) {
         LazyColumn(state = listState, contentPadding = PaddingValues(bottom = 32.dp), modifier = Modifier.fillMaxSize()) {
             item(key = "now") {
                 Column(Modifier.padding(horizontal = 20.dp)) {
-                    Text("Now playing", style = MaterialTheme.typography.titleLarge)
+                    Text("Now playing", style = MaterialTheme.typography.titleLarge, modifier = Modifier.semantics { heading() })
                     Spacer(Modifier.height(10.dp))
                     if (current != null) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -121,7 +131,7 @@ fun QueueSheet(onDismiss: () -> Unit) {
             item(key = "header") {
                 Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 20.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
-                        Text("Up next", style = MaterialTheme.typography.titleLarge)
+                        Text("Up next", style = MaterialTheme.typography.titleLarge, modifier = Modifier.semantics { heading() })
                         if (rows.isNotEmpty()) {
                             Text(
                                 "${rows.size} songs · ${formatLength(rows.sumOf { it.track.duration })}",
@@ -159,7 +169,7 @@ fun QueueSheet(onDismiss: () -> Unit) {
                             Box(
                                 Modifier.fillMaxSize().background(MaterialTheme.colorScheme.errorContainer).padding(horizontal = 24.dp),
                                 contentAlignment = if (dismiss.dismissDirection == SwipeToDismissBoxValue.StartToEnd) Alignment.CenterStart else Alignment.CenterEnd,
-                            ) { Icon(Icons.Rounded.Delete, "Remove", tint = MaterialTheme.colorScheme.onErrorContainer) }
+                            ) { Icon(Icons.Rounded.Delete, null, tint = MaterialTheme.colorScheme.onErrorContainer) }
                         },
                     ) {
                         Row(
@@ -167,6 +177,13 @@ fun QueueSheet(onDismiss: () -> Unit) {
                                 .fillMaxWidth()
                                 .background(if (isDragging) MaterialTheme.colorScheme.surfaceContainerHighest else MaterialTheme.colorScheme.surfaceContainerLow)
                                 .clickable { graph.player.jump(row.queueIndex) }
+                                .semantics {
+                                    customActions = buildList {
+                                        add(CustomAccessibilityAction("Remove") { graph.player.removeAt(row.queueIndex); true })
+                                        if (row.queueIndex > state.index + 1) add(CustomAccessibilityAction("Move up") { graph.player.move(row.queueIndex, row.queueIndex - 1); true })
+                                        if (row.queueIndex < state.queue.lastIndex) add(CustomAccessibilityAction("Move down") { graph.player.move(row.queueIndex, row.queueIndex + 1); true })
+                                    }
+                                }
                                 .padding(start = 20.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
@@ -184,14 +201,16 @@ fun QueueSheet(onDismiss: () -> Unit) {
                             }
                             IconButton(
                                 onClick = {},
-                                modifier = Modifier.draggableHandle(
-                                    onDragStarted = {
-                                        dragging = true
-                                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    },
-                                    onDragStopped = { dragging = false },
-                                ),
-                            ) { Icon(Icons.Rounded.DragHandle, "Drag to reorder", tint = MaterialTheme.colorScheme.onSurfaceVariant) }
+                                modifier = Modifier
+                                    .clearAndSetSemantics {}
+                                    .draggableHandle(
+                                        onDragStarted = {
+                                            dragging = true
+                                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        },
+                                        onDragStopped = { dragging = false },
+                                    ),
+                            ) { Icon(Icons.Rounded.DragHandle, null, tint = MaterialTheme.colorScheme.onSurfaceVariant) }
                         }
                     }
                 }
@@ -207,7 +226,7 @@ fun SleepDialog(current: SleepState, onDismiss: () -> Unit) {
         onDismissRequest = onDismiss,
         title = { Text("Sleep timer") },
         text = {
-            Column {
+            Column(Modifier.selectableGroup()) {
                 Text("Music fades out and pauses.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.height(12.dp))
                 listOf(15, 30, 45, 60, 90).forEach { minutes ->
@@ -237,7 +256,7 @@ private fun DialogOption(label: String, selected: Boolean = false, onClick: () -
         color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .selectable(selected, role = Role.RadioButton, onClick = onClick)
             .padding(vertical = 12.dp),
     )
 }
@@ -260,6 +279,8 @@ fun SpeedDialog(current: Float, onDismiss: () -> Unit) {
                         graph.player.setSpeed(speed)
                     },
                     valueRange = 0.5f..2f,
+                    steps = 29,
+                    modifier = Modifier.semantics { contentDescription = "Playback speed" },
                 )
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     listOf(0.75f, 1f, 1.1f, 1.25f, 1.5f, 2f).forEach { s ->

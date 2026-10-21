@@ -185,6 +185,22 @@ class SoundCloud(val http: OkHttpClient, private val authStore: AuthStore) {
 
     suspend fun me(): User = decode(get("me"))
 
+    /** Checks a login before it's saved, so a bad token never signs the app in */
+    suspend fun checkLogin(token: String, clientId: String): User = withContext(Dispatchers.IO) {
+        val url = (API + "me").toHttpUrl().newBuilder().setQueryParameter("client_id", clientId).build()
+        val request = Request.Builder().url(url)
+            .header("Authorization", "OAuth $token")
+            .header("Accept", "application/json")
+            .header("Origin", "https://soundcloud.com")
+            .header("Referer", "https://soundcloud.com/")
+            .build()
+        http.newCall(request).execute().use {
+            val text = it.body.string()
+            if (!it.isSuccessful) throw ApiException(it.code, text)
+            decode<User>(QuantmJson.parseToJsonElement(text))
+        }
+    }
+
     suspend fun user(id: Long): User = decode(get("users/$id"))
 
     suspend fun track(id: Long): Track = cache(decode(get("tracks/$id")))

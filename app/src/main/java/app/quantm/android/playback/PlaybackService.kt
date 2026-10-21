@@ -55,6 +55,8 @@ class PlaybackService : MediaLibraryService() {
     /** Songs that turned out to be progressive-only, and one retry per song for expired URLs */
     private val forceProgressive = HashSet<Long>()
     private val retried = HashSet<String>()
+    /** Songs skipped in a row because they wouldn't play; stops a Repeat All queue of dead songs looping */
+    private var failedInARow = 0
 
     override fun onCreate() {
         super.onCreate()
@@ -119,21 +121,21 @@ class PlaybackService : MediaLibraryService() {
         graph.api.cached(id) ?: MediaItems.trackOf(item)
     }
 
+    private fun snapshot(): SavedQueue? = if (player.mediaItemCount == 0) null else
+        SavedQueue(currentTracks(), player.currentMediaItemIndex, player.currentPosition.coerceAtLeast(0), player.repeatMode)
+
+    /** Blocking: only for shutdown, when there's no time to hand it to another thread */
     private fun saveQueue() {
-        if (player.mediaItemCount == 0) {
-            graph.queueStore.clear()
-            return
-        }
-        graph.queueStore.save(
-            SavedQueue(currentTracks(), player.currentMediaItemIndex, player.currentPosition.coerceAtLeast(0), player.repeatMode)
-        )
+        snapshot()?.let(graph.queueStore::save) ?: graph.queueStore.clear()
     }
 
     private fun scheduleSave() {
         saveJob?.cancel()
         saveJob = scope.launch {
             delay(1500)
-            saveQueue()
+            // read the player here on the main thread, then write the (possibly large) file on IO
+            val queue = snapshot()
+            kotlinx.coroutines.withContext(Dispatchers.IO) { queue?.let(graph.queueStore::save) ?: graph.queueStore.clear() }
         }
     }
 
@@ -161,19 +163,24 @@ class PlaybackService : MediaLibraryService() {
             ) scheduleSave()
             if (events.contains(Player.EVENT_MEDIA_ITEM_TRANSITION)) updateButtons()
             // playing again: songs get a fresh retry next time their stream URL expires
-            if (events.contains(Player.EVENT_IS_PLAYING_CHANGED) && player.isPlaying) retried.clear()
+            if (events.contains(Player.EVENT_IS_PLAYING_CHANGED) && player.isPlaying) {
+                retried.clear()
+                failedInARow = 0
+            }
         }
 
         override fun onAudioSessionIdChanged(audioSessionId: Int) {
             graph.audioFx.attach(audioSessionId)
         }
 
-        override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-            if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO && graph.sleepTimer.state.value == SleepState.EndOfTrack) {
-                // the song that just ended was the last one: stop at the start of the next
-                player.pause()
-                graph.sleepTimer.cancel()
-            }
+        override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+            // "End of this song" pauses via pauseAtEndOfMediaItems; once it has, the timer is done
+            if (!playWhenReady && reason == Player.PLAY_WHEN_READY_CHANGE_REASON_END_OF_MEDIA_ITEM &&
+                graph.sleepTimer.state.value == SleepState.EndOfTrack) graph.sleepTimer.cancel()
+        }
+
+        override fun onPlaybackStateChanged(playbackState: Int) {
+            if (playbackState == Player.STATE_ENDED && graph.sleepTimer.state.value == SleepState.EndOfTrack) graph.sleepTimer.cancel()
         }
 
         override fun onPlayerError(error: PlaybackException) {
@@ -197,7 +204,9 @@ class PlaybackService : MediaLibraryService() {
                     reload(playable(item))
                 }
                 // downloaded since it was queued, or a stream URL that expired during a long pause
+                // downloaded since it was queued, deleted since it was queued, or an expired stream URL
                 retried.add("$id") && (graph.offline.fileFor(id) != null ||
+                    cause.any { it is androidx.media3.datasource.FileDataSource.FileDataSourceException || it is java.io.FileNotFoundException } ||
                     cause.any { it is HttpDataSource.InvalidResponseCodeException && it.responseCode in listOf(401, 403, 404, 410) }) -> {
                     graph.resolver.forget(id)
                     reload(playable(item))
@@ -205,8 +214,16 @@ class PlaybackService : MediaLibraryService() {
                 else -> {
                     val title = item.mediaMetadata.title ?: "this song"
                     val offline = cause.any { it is java.net.UnknownHostException }
-                    graph.messages.show(if (offline) "No internet connection" else "Couldn't play \"$title\", skipped it")
-                    if (!offline && player.hasNextMediaItem()) {
+                    failedInARow++
+                    val allFailed = failedInARow >= player.mediaItemCount
+                    graph.messages.show(
+                        when {
+                            offline -> "No internet connection"
+                            allFailed -> "None of the songs in the queue would play"
+                            else -> "Couldn't play \"$title\", skipped it"
+                        }
+                    )
+                    if (!offline && !allFailed && player.hasNextMediaItem()) {
                         player.seekToNextMediaItem()
                         player.prepare()
                         player.play()
@@ -223,6 +240,7 @@ class PlaybackService : MediaLibraryService() {
             graph.sleepTimer.state.collect { state ->
                 fadeJob?.cancel()
                 player.volume = 1f
+                player.pauseAtEndOfMediaItems = state == SleepState.EndOfTrack
                 if (state is SleepState.At) {
                     fadeJob = scope.launch {
                         while (isActive) {
@@ -260,6 +278,12 @@ class PlaybackService : MediaLibraryService() {
 
     private val callback = object : MediaLibrarySession.Callback {
         override fun onConnect(session: MediaSession, controller: MediaSession.ControllerInfo): MediaSession.ConnectionResult {
+            // Like changes the SoundCloud account, so only Quantm, the system notification and car/watch
+            // surfaces Android vouches for get it; other apps get the standard playback controls
+            val trusted = controller.isTrusted || controller.packageName == packageName ||
+                session.isMediaNotificationController(controller) || session.isAutomotiveController(controller) ||
+                session.isAutoCompanionController(controller)
+            if (!trusted) return MediaSession.ConnectionResult.AcceptedResultBuilder(session, controller).build()
             val commands = MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS.buildUpon().add(likeCommand).build()
             return MediaSession.ConnectionResult.AcceptedResultBuilder(session, controller)
                 .setAvailableSessionCommands(commands)

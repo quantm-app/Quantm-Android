@@ -53,6 +53,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -94,11 +98,13 @@ fun TrackRow(
             .fillMaxWidth()
             .combinedClickable(
                 onClick = { if (locked) actions.trackMenu(track) else onClick() },
+                onLongClickLabel = "More options",
                 onLongClick = {
                     haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                     actions.trackMenu(track, onRemove)
                 },
             )
+            .semantics { if (current) stateDescription = if (now.playing) "Playing" else "Paused" }
             .padding(start = 16.dp, end = 4.dp, top = 8.dp, bottom = 8.dp)
     ) {
         if (header != null) {
@@ -142,10 +148,10 @@ fun TrackRow(
                 Spacer(Modifier.height(2.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (locked) {
-                        Icon(Icons.Rounded.Lock, "Copy-protected", Modifier.size(13.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Icon(Icons.Rounded.Lock, null, Modifier.size(13.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                         Spacer(Modifier.width(4.dp))
                     } else if (downloaded) {
-                        Icon(Icons.Rounded.DownloadDone, "Downloaded", Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
+                        Icon(Icons.Rounded.DownloadDone, null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
                         Spacer(Modifier.width(4.dp))
                     }
                     Text(
@@ -154,6 +160,7 @@ fun TrackRow(
                             if (locked) append(" · Copy-protected")
                             else if (track.isPreview) append(" · Preview")
                             else if (track.duration > 0) append(" · ").append(formatTime(track.duration))
+                            if (downloaded && !locked) append(" · Downloaded")
                         },
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -164,7 +171,7 @@ fun TrackRow(
             }
             if (trailing != null) trailing()
             IconButton(onClick = { actions.trackMenu(track, onRemove) }) {
-                Icon(Icons.Rounded.MoreVert, "More", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                Icon(Icons.Rounded.MoreVert, "More options for ${track.title}", tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
@@ -201,17 +208,17 @@ fun SectionHeader(title: String, modifier: Modifier = Modifier, subtitle: String
     Row(
         modifier
             .fillMaxWidth()
-            .then(if (onMore != null) Modifier.clickable(onClick = onMore) else Modifier)
+            .then(if (onMore != null) Modifier.clickable(onClickLabel = "See all $title", role = Role.Button, onClick = onMore) else Modifier)
             .padding(start = 16.dp, end = 8.dp, top = 20.dp, bottom = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
-            Text(title, style = SectionTitle, color = MaterialTheme.colorScheme.onBackground, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(title, style = SectionTitle, color = MaterialTheme.colorScheme.onBackground, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.semantics { heading() })
             if (!subtitle.isNullOrBlank()) {
                 Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
-        if (onMore != null) Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, "See all", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (onMore != null) Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -223,7 +230,7 @@ fun ItemCard(item: Item, modifier: Modifier = Modifier, width: Dp = 150.dp) {
         is Item.TrackItem -> Quad(item.track.artworkUrl ?: item.track.user?.avatarUrl, item.track.title, item.track.artist, item.track.id)
         is Item.PlaylistItem -> Quad(item.playlist.cover, item.playlist.title, item.playlist.user?.username ?: item.playlist.kindLabel, item.playlist.id)
         is Item.SystemItem -> Quad(item.playlist.cover, item.playlist.shortTitle ?: item.playlist.title, item.playlist.shortDescription ?: item.playlist.description ?: "", item.playlist.urn.hashCode().toLong())
-        is Item.UserItem -> Quad(item.user.avatarUrl, item.user.username, "${formatCount(item.user.followersCount)} followers", item.user.id)
+        is Item.UserItem -> Quad(item.user.avatarUrl, item.user.username, plural(item.user.followersCount, "follower"), item.user.id)
     }
     val person = item is Item.UserItem
     Column(
@@ -287,7 +294,7 @@ fun PlaylistRow(playlist: Playlist, onClick: () -> Unit, modifier: Modifier = Mo
 fun UserRow(user: User, onClick: () -> Unit, modifier: Modifier = Modifier, trailing: (@Composable () -> Unit)? = null) {
     ListRow(
         title = user.username,
-        subtitle = listOfNotNull(user.city?.takeIf { it.isNotBlank() }, "${formatCount(user.followersCount)} followers").joinToString(" · "),
+        subtitle = listOfNotNull(user.city?.takeIf { it.isNotBlank() }, plural(user.followersCount, "follower")).joinToString(" · "),
         onClick = onClick,
         modifier = modifier,
         verified = user.verified,

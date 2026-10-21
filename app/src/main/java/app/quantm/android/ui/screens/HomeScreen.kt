@@ -27,6 +27,7 @@ import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -34,6 +35,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -49,6 +54,7 @@ import app.quantm.android.ui.components.LocalBottomPadding
 import app.quantm.android.ui.components.MessageState
 import app.quantm.android.ui.components.PlaylistRow
 import app.quantm.android.ui.components.SectionHeader
+import app.quantm.android.ui.components.Skeleton
 import app.quantm.android.ui.components.SkeletonCarousel
 import app.quantm.android.ui.components.SkeletonRows
 import app.quantm.android.ui.components.TrackRow
@@ -89,12 +95,18 @@ fun HomeScreen() {
                 Column(Modifier.statusBarsPadding().padding(start = 16.dp, end = 16.dp, top = 12.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
-                            Text(greeting(), style = MaterialTheme.typography.headlineMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(greeting(), style = MaterialTheme.typography.headlineMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.semantics { heading() })
                             me?.let {
                                 Text(it.username, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
-                        Box(Modifier.clip(CircleShape).clickable { actions.navigate(SettingsRoute) }) {
+                        Box(
+                            Modifier
+                                .minimumInteractiveComponentSize()
+                                .clip(CircleShape)
+                                .clickable(onClickLabel = "Settings", role = Role.Button) { actions.navigate(SettingsRoute) }
+                                .semantics { contentDescription = "Your profile" }
+                        ) {
                             Avatar(me?.avatarUrl, 40.dp, seed = me?.id ?: 0)
                         }
                     }
@@ -118,13 +130,13 @@ fun HomeScreen() {
                     value == null -> item {
                         Column {
                             repeat(2) {
-                                SectionHeader("…")
+                                Skeleton(Modifier.padding(start = 16.dp, top = 20.dp, bottom = 10.dp).width(160.dp).height(20.dp))
                                 SkeletonCarousel()
                             }
                         }
                     }
                     else -> value.forEach { section ->
-                        item(key = "s:" + section.title) {
+                        item(key = "s:" + section.title, contentType = "section") {
                             SectionHeader(section.title, subtitle = section.description)
                             Carousel(section.items)
                         }
@@ -143,7 +155,7 @@ fun HomeScreen() {
                     }
                 }
                 if (trending.initial) item { SkeletonRows(6) }
-                itemsIndexed(trending.items.take(20), key = { _, t -> "tr" + t.id }) { i, track ->
+                itemsIndexed(trending.items.take(20), key = { _, t -> "tr" + t.id }, contentType = { _, _ -> "track" }) { i, track ->
                     TrackRow(track, index = i + 1, onClick = { graph.player.play(trending.items, i, context = "Trending") })
                 }
                 trending.error?.let { item { ErrorState(it, trending::retry) } }
@@ -153,7 +165,7 @@ fun HomeScreen() {
                     MessageState(Icons.Rounded.DynamicFeed, "Your feed is empty", "Follow artists on SoundCloud and their new tracks and reposts show up here.")
                 }
                 val feedTracks: List<Track> = feed.items.mapNotNull { (it.item as? Item.TrackItem)?.track }
-                itemsIndexed(feed.items, key = { _, post -> post.key }) { _, post ->
+                itemsIndexed(feed.items, key = { _, post -> post.key }, contentType = { _, post -> if (post.item is Item.TrackItem) "track" else "playlist" }) { _, post ->
                     val header = post.reposter?.let { "${it.username} reposted · ${timeAgo(post.createdAt)}" }
                     when (val item = post.item) {
                         is Item.TrackItem -> TrackRow(
@@ -179,6 +191,5 @@ fun HomeScreen() {
 private fun greeting(): String = when (LocalTime.now().hour) {
     in 5..11 -> "Good morning"
     in 12..17 -> "Good afternoon"
-    in 18..22 -> "Good evening"
-    else -> "Late night"
+    else -> "Good evening"
 }

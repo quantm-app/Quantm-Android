@@ -19,6 +19,7 @@ data class SavedQueue(
 class QueueStore(context: Context) {
     private val file = File(context.filesDir, "queue.json")
 
+    @Synchronized
     fun save(queue: SavedQueue) {
         runCatching {
             val slim = queue.copy(tracks = queue.tracks.map(LocalPlaylists::slim))
@@ -33,5 +34,6 @@ class QueueStore(context: Context) {
         if (!file.exists()) null else QuantmJson.decodeFromString(SavedQueue.serializer(), file.readText())
     }.getOrNull()?.takeIf { it.tracks.isNotEmpty() }
 
+    @Synchronized
     fun clear() { file.delete() }
 }

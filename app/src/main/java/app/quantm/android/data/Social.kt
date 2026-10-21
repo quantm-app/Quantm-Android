@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withLock
 
 /** Short messages shown as snackbars from anywhere in the app */
 class Messages {
@@ -65,6 +66,7 @@ class Social(
                 val lt = async { runCatching { api.likedTrackIds() }.getOrNull() }
                 val lp = async { runCatching { api.likedPlaylistIds() }.getOrNull() }
                 val rt = async { runCatching { api.repostedTrackIds() }.getOrNull() }
+                confirmed.clear()
                 lt.await()?.let { likedTracks.value = it }
                 lp.await()?.let { likedPlaylists.value = it }
                 rt.await()?.let { repostedTracks.value = it }
@@ -74,6 +76,9 @@ class Social(
     }
 
     fun clear() {
+        pending.values.forEach { it.cancel() }
+        pending.clear()
+        confirmed.clear()
         prefs.edit().clear().apply()
         _me.value = null
         likedTracks.value = emptySet()
@@ -82,6 +87,15 @@ class Social(
         following.value = emptySet()
     }
 
+    private val writes = kotlinx.coroutines.sync.Mutex()
+    private val pending = HashMap<Pair<MutableStateFlow<Set<Long>>, Long>, kotlinx.coroutines.Job>()
+    /** What SoundCloud has for each item, as far as Quantm knows */
+    private val confirmed = HashMap<Pair<MutableStateFlow<Set<Long>>, Long>, Boolean>()
+
+    /**
+     * Flips the item at once. Quick repeated taps are coalesced and requests go out one at a time,
+     * so SoundCloud always ends up matching what's on screen.
+     */
     private fun toggle(
         set: MutableStateFlow<Set<Long>>,
         id: Long,
@@ -89,15 +103,29 @@ class Social(
         offText: String,
         action: suspend (Boolean) -> Unit,
     ) {
-        val on = id !in set.value
-        set.update { if (on) it + id else it - id }
-        scope.launch {
-            runCatching { action(on) }
-                .onSuccess { messages.show(if (on) onText else offText) }
-                .onFailure { error ->
-                    set.update { if (on) it - id else it + id }
-                    messages.show(error.friendly())
-                }
+        val key = set to id
+        val wasOn = id in set.value
+        confirmed.putIfAbsent(key, wasOn)
+        set.update { if (wasOn) it - id else it + id }
+        pending.remove(key)?.cancel()
+        pending[key] = scope.launch {
+            kotlinx.coroutines.delay(350)
+            writes.withLock {
+                val want = id in set.value
+                if (confirmed[key] == want) return@withLock
+                runCatching { action(want) }
+                    .onSuccess {
+                        confirmed[key] = want
+                        messages.show(if (want) onText else offText)
+                    }
+                    .onFailure { error ->
+                        if (error is kotlinx.coroutines.CancellationException) throw error
+                        // put it back the way SoundCloud has it
+                        set.update { if (confirmed[key] == true) it + id else it - id }
+                        messages.show(error.friendly())
+                    }
+            }
+            pending.remove(key)
         }
     }
 

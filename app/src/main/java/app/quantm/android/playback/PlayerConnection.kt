@@ -232,12 +232,22 @@ class PlayerConnection(private val context: Context, private val graph: Graph) {
             upcoming.shuffled()
         } else {
             val original = unshuffled ?: queue
-            val remaining = upcoming.map { it.id }.toHashSet()
+            // how many of each song are still to come (the same song can be queued twice)
+            val remaining = HashMap<Long, Int>()
+            upcoming.forEach { remaining.merge(it.id, 1, Int::plus) }
             val currentId = queue[index].id
             val from = original.indexOfFirst { it.id == currentId }
-            val ordered = (original.drop(from + 1) + original.take(from + 1)).filter { it.id in remaining }.distinctBy { it.id }
+            val ordered = (original.drop(from + 1) + original.take(from + 1)).filter { t ->
+                val left = remaining[t.id] ?: 0
+                if (left > 0) remaining[t.id] = left - 1
+                left > 0
+            }
             unshuffled = null
-            ordered + upcoming.filter { u -> ordered.none { it.id == u.id } }
+            ordered + upcoming.filter { u ->
+                val left = remaining[u.id] ?: 0
+                if (left > 0) remaining[u.id] = left - 1
+                left > 0
+            }
         }
         _state.update { it.copy(shuffle = on) }
         if (upcoming.isNotEmpty()) c.replaceMediaItems(index + 1, c.mediaItemCount, reordered.map(MediaItems::from))

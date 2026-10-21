@@ -61,9 +61,9 @@ function main() {
   const code = baseCode(version) + n;
 
   console.log(`Building Quantm Dev ${devVersion} (versionCode ${code})...`);
-  const gradlew = process.platform === 'win32' ? 'gradlew.bat' : './gradlew';
+  const gradlew = path.join(ROOT, process.platform === 'win32' ? 'gradlew.bat' : 'gradlew');
   execFileSync(gradlew, [':app:assembleDev', `-Pquantm.version=${devVersion}`, `-Pquantm.versionCode=${code}`, '--console=plain', '-q'], {
-    cwd: ROOT, stdio: 'inherit', shell: process.platform === 'win32',
+    cwd: ROOT, stdio: 'inherit',
   });
 
   const built = path.join(ROOT, 'app', 'build', 'outputs', 'apk', 'dev', 'app-dev.apk');

@@ -73,6 +73,8 @@ class Updates(private val context: Context, private val http: OkHttpClient) {
         return releases.mapNotNull { el ->
             val r = el as? JsonObject ?: return@mapNotNull null
             if (r["draft"]?.jsonPrimitive?.boolean == true) return@mapNotNull null
+            // public builds take only full releases; dev builds are themselves prereleases
+            if (!isDev && r["prerelease"]?.jsonPrimitive?.boolean == true) return@mapNotNull null
             val tag = r.str("tag_name") ?: return@mapNotNull null
             // the dev repository also holds desktop builds: Android ones are tagged android-*
             if (isDev && !tag.startsWith("android-")) return@mapNotNull null
