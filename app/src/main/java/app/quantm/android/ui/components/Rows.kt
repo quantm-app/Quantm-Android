@@ -275,7 +275,7 @@ private data class Quad(val image: String?, val title: String, val subtitle: Str
 @Composable
 fun Carousel(items: List<Item>, modifier: Modifier = Modifier, width: Dp = 150.dp) {
     LazyRow(modifier, contentPadding = PaddingValues(horizontal = 10.dp)) {
-        items(items, key = { it.key }) { ItemCard(it, width = width) }
+        items(app.quantm.android.ui.unique(items), key = { it.key }) { ItemCard(it, width = width) }
     }
 }
 

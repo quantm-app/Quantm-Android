@@ -135,8 +135,9 @@ fun HomeScreen() {
                             }
                         }
                     }
-                    else -> value.forEach { section ->
-                        item(key = "s:" + section.title, contentType = "section") {
+                    // two sections can share a title, so key them by position
+                    else -> value.forEachIndexed { i, section ->
+                        item(key = "s:$i", contentType = "section") {
                             SectionHeader(section.title, subtitle = section.description)
                             Carousel(section.items)
                         }

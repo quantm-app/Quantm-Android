@@ -57,7 +57,7 @@ class Paged<T>(private val scope: CoroutineScope, private val factory: () -> Pag
         job = scope.launch {
             runCatching { pager.next() }
                 .onSuccess { page ->
-                    items = items + page
+                    items = unique(items + page)
                     done = pager.done
                 }
                 .onFailure { error = it.friendly() }
@@ -78,7 +78,7 @@ class Paged<T>(private val scope: CoroutineScope, private val factory: () -> Pag
         job = scope.launch {
             runCatching { pager.next() }
                 .onSuccess { page ->
-                    items = page
+                    items = unique(page)
                     done = pager.done
                 }
                 .onFailure {
@@ -97,6 +97,27 @@ class Paged<T>(private val scope: CoroutineScope, private val factory: () -> Pag
 
     /** Edit the loaded items in place (removing a song from a list, say) */
     fun update(change: (List<T>) -> List<T>) { items = change(items) }
+}
+
+/**
+ * SoundCloud sometimes sends the same song or playlist twice (across pages, or within one).
+ * Lists key their rows by id and crash on a repeat, so keep only the first.
+ */
+fun <T> unique(list: List<T>): List<T> {
+    val seen = HashSet<Any>()
+    return list.filter { item ->
+        seen.add(
+            when (item) {
+                is app.quantm.android.data.Item -> item.key
+                is app.quantm.android.data.FeedPost -> item.key
+                is app.quantm.android.data.Track -> "t" + item.id
+                is app.quantm.android.data.Playlist -> "p" + item.id
+                is app.quantm.android.data.User -> "u" + item.id
+                is app.quantm.android.data.Comment -> "c" + item.id
+                else -> item as Any
+            }
+        )
+    }
 }
 
 /** One value that loads once (and on refresh) */
