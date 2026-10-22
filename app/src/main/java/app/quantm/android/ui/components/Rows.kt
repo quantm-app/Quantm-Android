@@ -63,6 +63,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import app.quantm.android.data.Item
+import app.quantm.android.graph
 import app.quantm.android.data.Playlist
 import app.quantm.android.data.Track
 import app.quantm.android.data.User
@@ -228,7 +229,7 @@ fun ItemCard(item: Item, modifier: Modifier = Modifier, width: Dp = 150.dp) {
     val actions = LocalActions.current
     val (image, title, subtitle, seed) = when (item) {
         is Item.TrackItem -> Quad(item.track.artworkUrl ?: item.track.user?.avatarUrl, item.track.title, item.track.artist, item.track.id)
-        is Item.PlaylistItem -> Quad(item.playlist.cover, item.playlist.title, item.playlist.user?.username ?: item.playlist.kindLabel, item.playlist.id)
+        is Item.PlaylistItem -> Quad(rememberCover(item.playlist), item.playlist.title, item.playlist.user?.username ?: item.playlist.kindLabel, item.playlist.id)
         is Item.SystemItem -> Quad(item.playlist.cover, item.playlist.shortTitle ?: item.playlist.title, item.playlist.shortDescription ?: item.playlist.description ?: "", item.playlist.urn.hashCode().toLong())
         is Item.UserItem -> Quad(item.user.avatarUrl, item.user.username, plural(item.user.followersCount, "follower"), item.user.id)
     }
@@ -272,6 +273,16 @@ fun ItemCard(item: Item, modifier: Modifier = Modifier, width: Dp = 150.dp) {
 
 private data class Quad(val image: String?, val title: String, val subtitle: String, val seed: Long)
 
+/** The playlist's cover, or its first song's artwork once that's been looked up */
+@Composable
+fun rememberCover(playlist: Playlist): String? {
+    val graph = androidx.compose.ui.platform.LocalContext.current.graph
+    val cover by androidx.compose.runtime.produceState(playlist.cover, playlist.id) {
+        if (value == null) value = graph.api.playlistCover(playlist)
+    }
+    return cover
+}
+
 @Composable
 fun Carousel(items: List<Item>, modifier: Modifier = Modifier, width: Dp = 150.dp) {
     LazyRow(modifier, contentPadding = PaddingValues(horizontal = 10.dp)) {
@@ -286,7 +297,7 @@ fun PlaylistRow(playlist: Playlist, onClick: () -> Unit, modifier: Modifier = Mo
         subtitle = subtitle ?: listOfNotNull(playlist.kindLabel, playlist.user?.username, if (playlist.trackCount > 0) plural(playlist.trackCount.toLong(), "song") else null).joinToString(" · "),
         onClick = onClick,
         modifier = modifier,
-        leading = { Artwork(playlist.cover, size = 56.dp, seed = playlist.id) },
+        leading = { Artwork(rememberCover(playlist), size = 56.dp, seed = playlist.id) },
     )
 }
 

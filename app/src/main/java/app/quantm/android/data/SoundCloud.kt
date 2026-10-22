@@ -210,6 +210,23 @@ class SoundCloud(val http: OkHttpClient, private val authStore: AuthStore) {
         return playlist.copy(tracks = hydrate(playlist.tracks))
     }
 
+    private val covers = HashMap<Long, String?>()
+
+    /**
+     * Playlists without their own cover borrow the first song's artwork, like on soundcloud.com.
+     * Library and Home entries often come without tracks, so look it up once per playlist.
+     */
+    suspend fun playlistCover(playlist: Playlist): String? {
+        playlist.cover?.let { return it }
+        synchronized(covers) { if (covers.containsKey(playlist.id)) return covers[playlist.id] }
+        val cover = runCatching {
+            val full = decode<Playlist>(get("playlists/${playlist.id}"))
+            full.cover ?: full.tracks.firstOrNull()?.let { first -> (cached(first.id) ?: tracksByIds(listOf(first.id)).firstOrNull())?.artworkUrl }
+        }.getOrNull()
+        synchronized(covers) { covers[playlist.id] = cover }
+        return cover
+    }
+
     suspend fun systemPlaylist(urn: String): SystemPlaylist {
         val playlist = decode<SystemPlaylist>(get("system-playlists/" + urn))
         return playlist.copy(tracks = hydrate(playlist.tracks))
