@@ -34,6 +34,8 @@ Needs Android 8.0 or newer.
 - **Equalizer** with presets and bass boost, **sleep timer** (fades out, or stops at the end of the song), **playback speed**, and **skip silence**.
 - **Offline downloads:** songs whose artist allows downloads save in their original quality and play with no internet.
 - **26 themes** from desktop Quantm (SoundCloud Dark and Light, Midnight, Synthwave, OLED, Hextech, E-ink, Windows 98...), **Album Match** (the whole app takes its colors from the playing song), and **Material You** (your wallpaper's colors).
+- **Works with TalkBack:** every button is labeled, the waveform and EQ sliders can be adjusted with the screen reader, and the queue and playlists have Move up, Move down and Remove actions. Text stays readable at large font sizes, and light themes keep enough contrast.
+- **Updates itself:** new versions show up in the app with their notes, and Quantm tells you when it has updated.
 - Copy-protected label songs show a lock and open in SoundCloud, since Quantm can't play them.
 
 ## Privacy
