@@ -28,6 +28,8 @@ class Settings(context: Context) {
     val searchHistory = Pref(prefs, "searchHistory", "")
     val homeTab = Pref(prefs, "homeTab", 0)
     val skippedUpdate = Pref(prefs, "skippedUpdate", "")
+    /** The version that last ran, to say "Updated to X" once after an update */
+    val lastVersion = Pref(prefs, "lastVersion", "")
 
     fun recentSearches(): List<String> = searchHistory.value.split('\n').filter { it.isNotBlank() }
 

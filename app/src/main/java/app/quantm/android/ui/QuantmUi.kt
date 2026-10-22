@@ -220,6 +220,11 @@ private fun MainUi() {
         graph.messages.messages.collect { snackbar.currentSnackbarData?.dismiss(); snackbar.showSnackbar(it) }
     }
     LaunchedEffect(Unit) {
+        // installing an update restarts Quantm without a word, so say so once
+        val now = graph.updates.currentVersion
+        val before = graph.settings.lastVersion.value
+        graph.settings.lastVersion.value = now
+        if (before.isNotEmpty() && before != now) graph.messages.show("Updated to Quantm $now")
         if (graph.settings.checkUpdates.value) graph.updates.check()
     }
     LaunchedEffect(Unit) {
@@ -321,14 +326,16 @@ private fun MainUi() {
                 }
             }
 
+            PlayerSheet(playerProgress, bottomInset = navBarHeight)
+
+            // after the player, so messages also show while Now Playing is open
             SnackbarHost(
                 snackbar,
                 Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(bottom = bottomPadding * (1f - p) + 8.dp),
+                    .navigationBarsPadding()
+                    .padding(bottom = (bottomPadding - navBarHeight + 80.dp) * (1f - p) + 8.dp),
             )
-
-            PlayerSheet(playerProgress, bottomInset = navBarHeight)
         }
 
         menu?.let { (track, remove) -> TrackMenuSheet(track, remove, onDismiss = { menu = null }) }

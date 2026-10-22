@@ -423,7 +423,8 @@ fun NowPlaying(state: PlayerState, track: Track, onCollapse: () -> Unit) {
                                 Icon(
                                     if (on) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
                                     if (on) "Remove from likes" else "Like",
-                                    tint = if (on) accent else content,
+                                    // the theme accent, so a like stands out even on black-and-white artwork
+                                    tint = if (on) q.accent else content,
                                     modifier = Modifier.size(28.dp),
                                 )
                             }
